@@ -313,3 +313,53 @@ def lookup_address(street: str, number: str, include_feature: bool = False):
         gjson_str, ref_val = feat[0]
         feature = {"type": "Feature", "geometry": json.loads(gjson_str), "properties": {"reference": ref_val}}
     return {"reference": reference, "feature": feature}
+
+
+# ---------- CELS points (centroids) ----------
+@app.get("/cels/features")
+def cels_features(
+    bbox: str | None = Query(None, description="minx,miny,maxx,maxy (WGS84)"),
+    limit: int = 20000,
+    offset: int = 0,
+):
+    where, params = parse_bbox(bbox)
+    rows = q(f"""
+        WITH j AS (
+          SELECT 
+            ST_PointOnSurface(b.geom) AS pt,  -- point we’ll use for geometry & bbox
+            c.id,
+            c.nombre,
+            c.street_norm,
+            c.number_norm,
+            c.reference,
+            c.auto_CEL
+          FROM buildings b
+          JOIN autoconsumos_CELS c
+            ON LEFT(UPPER(b.reference), 14) = LEFT(UPPER(c.reference), 14)
+          {where.replace("geom", "pt")}      -- make the bbox filter use the POINT
+          LIMIT ? OFFSET ?
+        )
+        SELECT 
+          ST_AsGeoJSON(pt) AS gjson,
+          to_json(struct_pack(
+            id := id,
+            nombre := nombre,
+            street_norm := street_norm,
+            number_norm := number_norm,
+            reference := reference,
+            auto_CEL := auto_CEL
+          )) AS props
+        FROM j;
+    """, params + [limit, offset])
+
+    return {
+        "type": "FeatureCollection",
+        "features": [
+            {
+                "type": "Feature",
+                "geometry": json.loads(gjson),
+                "properties": json.loads(props) if isinstance(props, str) else (props or {}),
+            }
+            for gjson, props in rows
+        ],
+    }

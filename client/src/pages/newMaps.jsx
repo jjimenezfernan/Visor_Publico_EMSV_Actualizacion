@@ -264,7 +264,7 @@ function ShadowsLayer({ bbox, minZoom = 16, maxZoom = 19 }) {
       p.style.mixBlendMode = "multiply";
       p.style.opacity = "1";
       // CRITICAL: This prevents the pane from capturing pointer events
-      p.style.pointerEvents = "none"; // ✅ Shadows should NOT capture clicks
+      p.style.pointerEvents = "none"; 
     }
     if (!rendererRef.current) {
       rendererRef.current = L.canvas({ padding: 0.5 });
@@ -697,13 +697,106 @@ function AutoInvalidateOnResize({ observeRef }) {
   return null;
 }
 
+
+function CelsBufferLayer({ radiusMeters = 1000, onLoadComplete }) {
+  const map = useMap();
+  const layerRef = useRef(null);
+  const abortRef = useRef(null);
+  const paneName = "cels-pane";
+
+  useEffect(() => {
+    if (!map) return;
+    if (!map.getPane(paneName)) {
+      map.createPane(paneName);
+      const p = map.getPane(paneName);
+      p.style.zIndex = 560;
+      p.style.pointerEvents = "none";
+    }
+  }, [map]);
+
+  useEffect(() => {
+    if (!map) return;
+    if (layerRef.current) { map.removeLayer(layerRef.current); layerRef.current = null; }
+    if (abortRef.current) abortRef.current.abort();
+    const ac = new AbortController();
+    abortRef.current = ac;
+
+    const cityBBox = [-3.766250610351563, 40.279394708323274, -3.685398101806641, 40.32560453181949];
+    const params = new URLSearchParams({ bbox: cityBBox.join(","), limit: "20000", offset: "0" });
+    const url = `${API_BASE}/cels/features?${params}`;
+    console.log("Fetching CELS:", url);
+
+    (async () => {
+      try {
+        const res = await fetch(url, { signal: ac.signal });
+        if (!res.ok) {
+          onLoadComplete?.(false);                 // ← hide overlay even on error
+          return;
+        }
+        const data = await res.json();
+
+        const group = L.layerGroup([], { pane: paneName });
+        (data.features || []).forEach((f) => {
+          let lat, lng;
+          if (f.geometry?.type === "Point") {
+            const [x, y] = f.geometry.coordinates;
+            lng = x; lat = y;
+          } else {
+            const center = L.geoJSON(f.geometry).getBounds().getCenter();
+            lat = center.lat; lng = center.lng;
+          }
+          const is2 = Number(f.properties?.auto_CEL) === 2;
+          const stroke = is2 ? "#ef4444" : "#2563eb";
+          const fill   = is2 ? "#fecaca" : "#c7d2fe";
+
+          const ring = L.circle([lat, lng], {
+            radius: radiusMeters, color: stroke, weight: 2,
+            fillColor: fill, fillOpacity: 0.25, pane: paneName
+          });
+          const dot = L.circleMarker([lat, lng], {
+            radius: 4, color: stroke, weight: 2,
+            fillColor: stroke, fillOpacity: 1, pane: paneName
+          });
+
+          group.addLayer(ring).addLayer(dot);
+        });
+
+        group.addTo(map);
+        layerRef.current = group;
+
+        // ✅ tell the overlay we're done (even if 0 features)
+        onLoadComplete?.(true);
+
+        if (group.getLayers().length) {
+          map.fitBounds(group.getBounds().pad(0.2));
+        }
+      } catch (e) {
+        if (e.name !== "AbortError") console.error("CELS fetch error:", e);
+        onLoadComplete?.(false);                   // ← also finish overlay on exception
+      }
+    })();
+
+    return () => {
+      if (abortRef.current) abortRef.current.abort();
+      if (layerRef.current && map) map.removeLayer(layerRef.current);
+      layerRef.current = null;
+    };
+  }, [map, radiusMeters, onLoadComplete]);
+
+  return null;
+}
+
+
+
+
 export default function NewMap() {
   const mapBoxRef = useRef(null);
   const mapHeight = useFillToBottom(mapBoxRef, 8); 
 
-  const [shadowsVisible, setShadowsVisible] = useState(true);
+  const [shadowsVisible, setShadowsVisible] = useState(false);
 
   const [buildingsLoaded, setBuildingsLoaded] = useState(false);
+  const [celsLoaded, setCelsLoaded] = useState(false);
 
   const selectionRef = useRef(null);
   const mapRef = useRef(null); 
@@ -899,6 +992,10 @@ export default function NewMap() {
         setSearchError("Referencia encontrada pero sin geometría.");
         return;
       }
+      if ((data.features || []).length) {
+        const f0 = data.features[0];
+        console.log("first CELS point:", f0.geometry);
+      }
 
       const feature = data.feature;
       const p = feature.properties || {};
@@ -1001,7 +1098,7 @@ export default function NewMap() {
                   style={{ height: "100%", width: "100%", background: "#f3f4f6" }}
                 >
                   <AutoInvalidateOnResize observeRef={mapBoxRef} />
-                  <MapLoadingOverlay loading={!buildingsLoaded} />
+                  <MapLoadingOverlay loading={shadowsVisible ? !buildingsLoaded : !celsLoaded} />
                   <StaticBuildingsLayer 
                     apiBase={API_BASE} 
                     onLoadComplete={() => setBuildingsLoaded(true)}
@@ -1027,22 +1124,16 @@ export default function NewMap() {
                     shadowMax={18}
                   />
 
-                  {shadowsVisible && (
+                  {shadowsVisible ? (
                     <>
-                      <ShadowsLayer bbox={bbox} minZoom={17} maxZoom={18} />
+                      {bbox && <ShadowsLayer bbox={bbox} minZoom={17} maxZoom={18} />}
                       <Legend minZoom={17} maxZoom={18} />
                     </>
+                  ) : (
+                    <CelsBufferLayer radiusMeters={1000} onLoadComplete={() => setCelsLoaded(true)} />
                   )}
 
 
-                  {shadowsVisible && (
-                    <>
-                      <ShadowsLayer bbox={bbox} minZoom={17} maxZoom={18} />
-                      <Legend minZoom={17} maxZoom={18} />
-                      
-                    </>
-                  )}
-                  
                   <ZonalDrawControl onStats={(s) => console.log("Zonal stats:", s)} />
                   {geoLimites && (
                     <LayerGeoJSON
