@@ -698,7 +698,7 @@ function AutoInvalidateOnResize({ observeRef }) {
 }
 
 
-function CelsBufferLayer({ radiusMeters = 1000, onLoadComplete }) {
+function CelsBufferLayer({radiusMeters = 1000 }) {
   const map = useMap();
   const layerRef = useRef(null);
   const abortRef = useRef(null);
@@ -709,7 +709,7 @@ function CelsBufferLayer({ radiusMeters = 1000, onLoadComplete }) {
     if (!map.getPane(paneName)) {
       map.createPane(paneName);
       const p = map.getPane(paneName);
-      p.style.zIndex = 560;
+      p.style.zIndex = 560;        // 🔼 higher than buildings/selection panes
       p.style.pointerEvents = "none";
     }
   }, [map]);
@@ -726,16 +726,16 @@ function CelsBufferLayer({ radiusMeters = 1000, onLoadComplete }) {
     const url = `${API_BASE}/cels/features?${params}`;
     console.log("Fetching CELS:", url);
 
+
     (async () => {
       try {
         const res = await fetch(url, { signal: ac.signal });
-        if (!res.ok) {
-          onLoadComplete?.(false);                 // ← hide overlay even on error
-          return;
-        }
+        if (!res.ok) return;
         const data = await res.json();
 
+        console.log("CELS features:", data.features?.length ?? 0);
         const group = L.layerGroup([], { pane: paneName });
+
         (data.features || []).forEach((f) => {
           let lat, lng;
           if (f.geometry?.type === "Point") {
@@ -748,14 +748,21 @@ function CelsBufferLayer({ radiusMeters = 1000, onLoadComplete }) {
           const is2 = Number(f.properties?.auto_CEL) === 2;
           const stroke = is2 ? "#ef4444" : "#2563eb";
           const fill   = is2 ? "#fecaca" : "#c7d2fe";
-
           const ring = L.circle([lat, lng], {
-            radius: radiusMeters, color: stroke, weight: 2,
-            fillColor: fill, fillOpacity: 0.25, pane: paneName
+            radius: radiusMeters,
+            color: stroke,
+            weight: 2,
+            fillColor: fill,
+            fillOpacity: 0.25,
+            pane: paneName
           });
           const dot = L.circleMarker([lat, lng], {
-            radius: 4, color: stroke, weight: 2,
-            fillColor: stroke, fillOpacity: 1, pane: paneName
+            radius: 4,
+            color: stroke,
+            weight: 2,
+            fillColor: stroke,
+            fillOpacity: 1,
+            pane: paneName
           });
 
           group.addLayer(ring).addLayer(dot);
@@ -763,16 +770,11 @@ function CelsBufferLayer({ radiusMeters = 1000, onLoadComplete }) {
 
         group.addTo(map);
         layerRef.current = group;
-
-        // ✅ tell the overlay we're done (even if 0 features)
-        onLoadComplete?.(true);
-
         if (group.getLayers().length) {
-          map.fitBounds(group.getBounds().pad(0.2));
+           map.fitBounds(group.getBounds().pad(0.2));
         }
       } catch (e) {
         if (e.name !== "AbortError") console.error("CELS fetch error:", e);
-        onLoadComplete?.(false);                   // ← also finish overlay on exception
       }
     })();
 
@@ -781,7 +783,7 @@ function CelsBufferLayer({ radiusMeters = 1000, onLoadComplete }) {
       if (layerRef.current && map) map.removeLayer(layerRef.current);
       layerRef.current = null;
     };
-  }, [map, radiusMeters, onLoadComplete]);
+  },[map, radiusMeters]);
 
   return null;
 }
@@ -1098,7 +1100,7 @@ export default function NewMap() {
                   style={{ height: "100%", width: "100%", background: "#f3f4f6" }}
                 >
                   <AutoInvalidateOnResize observeRef={mapBoxRef} />
-                  <MapLoadingOverlay loading={shadowsVisible ? !buildingsLoaded : !celsLoaded} />
+                  <MapLoadingOverlay loading={!buildingsLoaded} />
                   <StaticBuildingsLayer 
                     apiBase={API_BASE} 
                     onLoadComplete={() => setBuildingsLoaded(true)}
@@ -1130,7 +1132,7 @@ export default function NewMap() {
                       <Legend minZoom={17} maxZoom={18} />
                     </>
                   ) : (
-                    <CelsBufferLayer radiusMeters={1000} onLoadComplete={() => setCelsLoaded(true)} />
+                    <CelsBufferLayer radiusMeters={1000} />
                   )}
 
 
