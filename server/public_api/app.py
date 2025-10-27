@@ -363,3 +363,161 @@ def cels_features(
             for gjson, props in rows
         ],
     }
+
+
+
+
+
+# ---------- CELS membership check ----------
+class CelsWithinReq(BaseModel):
+    geometry: dict  # GeoJSON geometry (Point, Polygon, etc.)
+
+@app.post("/cels/within")
+def cels_within_buffer(
+    req: CelsWithinReq,
+    radius_m: float = Query(500, description="Radio del buffer CELS en metros")
+):
+    """
+    Devuelve todos los CELS cuyos buffers contienen (intersectan) la geometría dada.
+    Versión simplificada usando distancia en grados (aproximada).
+    """
+    geojson_str = json.dumps(req.geometry)
+    
+    # Convertir metros a grados aproximadamente (1 grado ≈ 111km en latitud)
+    # Para Madrid (40°N), 1 grado longitud ≈ 85km
+    radius_deg = radius_m / 85000.0  # aproximación para longitud en Madrid
+    
+    try:
+        rows = q("""
+            WITH input_geom AS (
+              SELECT ST_GeomFromGeoJSON(?::VARCHAR) AS geom
+            ),
+            cels_points AS (
+              SELECT 
+                c.id,
+                c.nombre,
+                c.street_norm,
+                c.number_norm,
+                c.reference AS cels_ref,
+                c.auto_CEL,
+                ST_Centroid(b.geom) AS point_geom
+              FROM autoconsumos_CELS c
+              JOIN buildings b 
+                ON LEFT(UPPER(b.reference), 14) = LEFT(UPPER(c.reference), 14)
+            ),
+            input_point AS (
+              SELECT ST_Centroid(geom) AS center FROM input_geom
+            )
+            SELECT 
+              cp.id,
+              cp.nombre,
+              cp.street_norm,
+              cp.number_norm,
+              cp.cels_ref,
+              cp.auto_CEL,
+              ST_Distance(cp.point_geom, ip.center) AS distance_deg
+            FROM cels_points cp, input_point ip
+            WHERE ST_Distance(cp.point_geom, ip.center) <= ?
+            ORDER BY distance_deg;
+        """, [geojson_str, radius_deg])
+        
+        cels = []
+        for row in rows:
+            # Convertir distancia de grados a metros (aproximado)
+            distance_deg = float(row[6]) if row[6] is not None else None
+            distance_m = distance_deg * 85000.0 if distance_deg else None
+            
+            cels.append({
+                "id": row[0],
+                "nombre": row[1] if row[1] else "(sin nombre)",
+                "street_norm": row[2],
+                "number_norm": row[3],
+                "reference": row[4],
+                "auto_CEL": int(row[5]) if row[5] is not None else None,
+                "distance_m": distance_m,
+            })
+        
+        return {
+            "count": len(cels),
+            "cels": cels,
+            "radius_m": radius_m
+        }
+    except Exception as e:
+        print(f"Error in /cels/within: {e}")
+        raise HTTPException(500, f"Error: {str(e)}")
+
+
+
+
+
+
+# Agrega este endpoint temporal para debug en app.py
+@app.get("/debug/cels/count")
+def debug_cels_count():
+    """Endpoint temporal para verificar datos CELS"""
+    try:
+        # Contar registros en autoconsumos_CELS
+        count_cels = q("SELECT COUNT(*) FROM autoconsumos_CELS")[0][0]
+        
+        # Contar registros en buildings que coinciden
+        count_matches = q("""
+            SELECT COUNT(*)
+            FROM buildings b
+            JOIN autoconsumos_CELS c
+              ON LEFT(UPPER(b.reference), 14) = LEFT(UPPER(c.reference), 14)
+        """)[0][0]
+        
+        # Muestra ejemplo
+        sample = q("""
+            SELECT c.id, c.nombre, c.reference, c.auto_CEL
+            FROM autoconsumos_CELS c
+            LIMIT 5
+        """)
+        
+        return {
+            "cels_count": int(count_cels),
+            "buildings_with_cels": int(count_matches),
+            "sample": [{"id": r[0], "nombre": r[1], "reference": r[2], "auto_CEL": r[3]} for r in sample]
+        }
+    except Exception as e:
+        return {"error": str(e)}
+    
+
+@app.get("/cadastre/feature")
+def cadastre_by_refcat(
+    refcat: str = Query(..., description="Referencia catastral"),
+    include_feature: bool = Query(False, description="Incluir geometría GeoJSON")
+):
+    """Busca un edificio por referencia catastral exacta"""
+    ref_norm = refcat.strip()
+    
+    if not include_feature:
+        # Solo devolver si existe
+        exists = q("SELECT 1 FROM buildings WHERE UPPER(reference) = UPPER(?) LIMIT 1", [ref_norm])
+        if not exists:
+            raise HTTPException(404, "Referencia catastral no encontrada")
+        return {"reference": ref_norm}
+    
+    # Con geometría
+    rows = q("""
+        WITH f AS (
+          SELECT geom, * EXCLUDE (geom)
+          FROM buildings
+          WHERE UPPER(reference) = UPPER(?)
+          LIMIT 1
+        )
+        SELECT ST_AsGeoJSON(geom) AS gjson, to_json(f) AS props FROM f;
+    """, [ref_norm])
+
+    if not rows:
+        raise HTTPException(404, "Referencia catastral no encontrada")
+
+    gjson, props = rows[0]
+    return {
+        "reference": ref_norm,
+        "feature": {
+            "type": "Feature",
+            "geometry": json.loads(gjson),
+            "properties": json.loads(props) if isinstance(props, str) else (props or {})
+        }
+    }

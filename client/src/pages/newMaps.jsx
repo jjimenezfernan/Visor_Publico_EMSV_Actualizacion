@@ -1,20 +1,20 @@
 // newMap.jsx
 import { useEffect, useMemo, useRef, useState } from "react";
-import { MapContainer, TileLayer, useMap } from "react-leaflet";
+import { MapContainer, TileLayer, useMap, LayersControl, LayerGroup } from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import SubUpBar from "../global_components/SubUpBar";
-import { 
-  Box, 
-  Typography, 
-  Paper, 
-  TextField, 
-  Button, 
-  Alert, 
-  CircularProgress, 
-  useTheme, 
-  Select, 
-  Autocomplete    
+import {
+  Box,
+  Typography,
+  Paper,
+  TextField,
+  Button,
+  Alert,
+  CircularProgress,
+  useTheme,
+  Select,
+  Autocomplete
 } from "@mui/material";
 
 import "leaflet-draw/dist/leaflet.draw.css";
@@ -22,22 +22,22 @@ import "leaflet-draw";
 import * as turf from "@turf/turf";
 
 import { tokens } from "../data/theme";
-// newMap.jsx 
-// ...
-import SearchBoxEMSV from "../components/SearchBoxEMSV"; // ← ruta paralela a MapEMSV/MapZoomProvider
-// ...
+import SearchBoxEMSV from "../components/SearchBoxEMSV";
 import StaticBuildingsLayer from "../components/BuildingsLayer";
-
-
-import AdditionalPanel from "../components/AdditionalPanel"; 
+import AdditionalPanel from "../components/AdditionalPanel";
 import Grid from "@mui/material/Grid";
 import Stack from "@mui/material/Stack";
-import MapLoadingOverlay from "../components/PantallaCarga"; 
+import MapLoadingOverlay from "../components/PantallaCarga";
 
 const API_BASE = "http://127.0.0.1:8000";
 import { DIRECTION } from "../data/direccion_server";
 const EMSV_URL = `${DIRECTION}/api/visor_emsv`;
 import { useLayoutEffect } from "react";
+import RightLayerPanel from "../components/RightLayerPanel";
+
+
+
+
 
 // ---- leyenda ----
 const BINS = [
@@ -56,18 +56,9 @@ const colorForShadowCount = (v) => {
 
 
 
-
-// ---------- helpers (normalización y lookup) ----------
-const stripAccents = (s) =>
-  s.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
-const norm = (s) =>
-  stripAccents(String(s ?? ""))
-    .toUpperCase()
-    .replace(/\s+/g, " ")
-    .trim();
-
-
-
+// ---------- helpers ----------
+const stripAccents = (s) => s.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+const norm = (s) => stripAccents(String(s ?? "")).toUpperCase().replace(/\s+/g, " ").trim();
 
 function BboxWatcher({ onBboxChange }) {
   const map = useMap();
@@ -81,18 +72,14 @@ function BboxWatcher({ onBboxChange }) {
         onBboxChange([b.getWest(), b.getSouth(), b.getEast(), b.getNorth()]);
       }, DEBOUNCE);
     };
-    map.on("moveend", update); // evita "move" para no refetchear durante el arrastre
+    map.on("moveend", update);
     update();
     return () => { clearTimeout(t); map.off("moveend", update); };
   }, [map, onBboxChange]);
   return null;
 }
 
-
-
-
-
-// Reemplaza tu Legend por este:
+// Leyenda (no bloquea clics y no tapa el LayersControl)
 function Legend({ minZoom = 17, maxZoom = 18 }) {
   const map = useMap();
   const [visible, setVisible] = useState(false);
@@ -104,7 +91,7 @@ function Legend({ minZoom = 17, maxZoom = 18 }) {
       setVisible(z >= minZoom && z <= maxZoom);
     };
     map.on("zoomend", check);
-    check(); // estado inicial
+    check();
     return () => map.off("zoomend", check);
   }, [map, minZoom, maxZoom]);
 
@@ -112,9 +99,16 @@ function Legend({ minZoom = 17, maxZoom = 18 }) {
 
   return (
     <div style={{
-      position: "absolute", right: 12, bottom: 12, zIndex: 1000,
-      background: "white", padding: "8px 10px", borderRadius: 8,
-      boxShadow: "0 2px 8px rgba(0,0,0,0.15)", font: "12px system-ui"
+      position: "absolute",
+      right: 12,
+      bottom: 76,             // subir para no solapar el botón de capas
+      zIndex: 500,            // por debajo de los controles
+      pointerEvents: "none",  // no intercepta clics
+      background: "white",
+      padding: "8px 10px",
+      borderRadius: 8,
+      boxShadow: "0 2px 8px rgba(0,0,0,0.15)",
+      font: "12px system-ui"
     }}>
       <div style={{ fontWeight: 600, marginBottom: 6 }}>Horas de sombra</div>
       {BINS.map((b, i) => (
@@ -130,12 +124,7 @@ function Legend({ minZoom = 17, maxZoom = 18 }) {
   );
 }
 
-
-
-
-
-
-// Indicador de zoom + sugerencia para sombras (versión top-right)
+// Indicador de zoom (lo conservas si lo necesitas)
 function ZoomStatus({ minZoom = 17, maxZoom = 18 }) {
   const map = useMap();
   const [z, setZ] = useState(() => map?.getZoom?.() ?? 0);
@@ -144,7 +133,7 @@ function ZoomStatus({ minZoom = 17, maxZoom = 18 }) {
     if (!map) return;
     const update = () => setZ(map.getZoom());
     map.on("zoomend", update);
-    update(); // estado inicial
+    update();
     return () => map.off("zoomend", update);
   }, [map]);
 
@@ -157,7 +146,7 @@ function ZoomStatus({ minZoom = 17, maxZoom = 18 }) {
       : "Sombras activas en este zoom";
 
   const targetZoom = z < minZoom ? minZoom : z > maxZoom ? maxZoom : z;
-  const badgeBg = inRange ? "#10b981" /* verde */ : "#f59e0b" /* ámbar */;
+  const badgeBg = inRange ? "#10b981" : "#f59e0b";
 
   return (
     <div
@@ -172,7 +161,6 @@ function ZoomStatus({ minZoom = 17, maxZoom = 18 }) {
         gap: 8,
       }}
     >
-      {/* Nivel de zoom actual */}
       <div
         style={{
           background: "white",
@@ -199,7 +187,6 @@ function ZoomStatus({ minZoom = 17, maxZoom = 18 }) {
         <strong>Zoom:</strong> {z}
       </div>
 
-      {/* Mensaje de ayuda */}
       <div
         style={{
           background: "white",
@@ -237,9 +224,6 @@ function ZoomStatus({ minZoom = 17, maxZoom = 18 }) {
   );
 }
 
-
-
-
 function ShadowsLayer({ bbox, minZoom = 16, maxZoom = 19 }) {
   const map = useMap();
   const currentRef = useRef(null);
@@ -249,22 +233,20 @@ function ShadowsLayer({ bbox, minZoom = 16, maxZoom = 19 }) {
   const paneName = "shadows-pane";
   const rendererRef = useRef(null);
 
-  // tuning del progresivo
-  const CHUNK_SIZE = 2000;   // nº de features por “oleada”
-  const CHUNK_DELAY = 16;    // ms entre oleadas (≈ 1 frame). Sube a 30–50 si va muy denso.
-  const PANE_FADE_MS = 220;  // crossfade del pane
+  const CHUNK_SIZE = 2000;
+  const CHUNK_DELAY = 16;
+  const PANE_FADE_MS = 220;
 
   useEffect(() => {
     if (!map) return;
     if (!map.getPane(paneName)) {
       map.createPane(paneName);
       const p = map.getPane(paneName);
-      p.style.zIndex = 420; // Below buildings (440)
+      p.style.zIndex = 420;
       p.style.transition = `opacity ${PANE_FADE_MS}ms ease`;
       p.style.mixBlendMode = "multiply";
       p.style.opacity = "1";
-      // CRITICAL: This prevents the pane from capturing pointer events
-      p.style.pointerEvents = "none"; 
+      p.style.pointerEvents = "none";
     }
     if (!rendererRef.current) {
       rendererRef.current = L.canvas({ padding: 0.5 });
@@ -293,11 +275,9 @@ function ShadowsLayer({ bbox, minZoom = 16, maxZoom = 19 }) {
     );
   };
 
-  // render progresivo de un FeatureCollection a una L.geoJSON vacía
   const progressivelyAdd = async (fc, lyr, signal) => {
     const feats = fc.features || [];
     let i = 0;
-
     const step = () => {
       if (signal.aborted) return;
       const next = feats.slice(i, i + CHUNK_SIZE);
@@ -338,7 +318,6 @@ function ShadowsLayer({ bbox, minZoom = 16, maxZoom = 19 }) {
         const fc = await res.json();
         if (ac.signal.aborted) return;
 
-        // capa "siguiente" vacía, añadimos en chunks
         const lyr = L.geoJSON(null, {
           pane: paneName,
           renderer: rendererRef.current,
@@ -363,21 +342,17 @@ function ShadowsLayer({ bbox, minZoom = 16, maxZoom = 19 }) {
           },
         });
 
-        // Añade la capa y empieza la “aparición” progresiva
         lyr.addTo(map);
         nextRef.current = lyr;
 
-        // pane a 0 -> llenamos -> swap -> a 1 (crossfade)
         if (paneEl) paneEl.style.opacity = "0";
         await progressivelyAdd(fc, lyr, ac.signal);
         if (ac.signal.aborted) return;
 
-        // swap sin quitar pane (ya está en 0; no hay flash)
         if (currentRef.current) map.removeLayer(currentRef.current);
         currentRef.current = nextRef.current;
         nextRef.current = null;
 
-        // sube opacidad (aparecen “poco a poco” y, además, con fade final)
         if (paneEl) paneEl.style.opacity = "1";
 
         prevFetchBBoxRef.current = padded;
@@ -391,7 +366,6 @@ function ShadowsLayer({ bbox, minZoom = 16, maxZoom = 19 }) {
     };
   }, [map, bbox, minZoom, maxZoom]);
 
-  // al cambiar zoom: no refetch, solo ajusta radio
   useEffect(() => {
     if (!map) return;
     const onZoomEnd = () => {
@@ -421,12 +395,11 @@ function ShadowsLayer({ bbox, minZoom = 16, maxZoom = 19 }) {
     if (!map.getPane(paneName)) {
       map.createPane(paneName);
       const p = map.getPane(paneName);
-      p.style.zIndex = 420; // Below buildings (440)
+      p.style.zIndex = 420;
       p.style.transition = `opacity ${PANE_FADE_MS}ms ease`;
       p.style.mixBlendMode = "multiply";
       p.style.opacity = "1";
-      // CRITICAL: This prevents the pane from capturing pointer events
-      p.style.pointerEvents = "none"; // ✅ Already in your code - good!
+      p.style.pointerEvents = "none";
     }
     if (!rendererRef.current) {
       rendererRef.current = L.canvas({ padding: 0.5 });
@@ -435,7 +408,6 @@ function ShadowsLayer({ bbox, minZoom = 16, maxZoom = 19 }) {
 
   return null;
 }
-
 
 function ZonalDrawControl({ onStats }) {
   const map = useMap();
@@ -495,14 +467,12 @@ function padBBox([minx, miny, maxx, maxy], padRatio = 0.2) {
   const py = dy * padRatio;
   return [minx - px, miny - py, maxx + px, maxy + py];
 }
-
 function limitForZoom(z) {
   if (z <= 12) return 8000;
   if (z <= 14) return 20000;
   if (z <= 16) return 50000;
   return 100000;
 }
-
 
 function BindMapRef({ mapRef }) {
   const map = useMap();
@@ -518,18 +488,17 @@ function SetupLimitPanes() {
   useEffect(() => {
     if (!map.getPane("limits-casing")) {
       map.createPane("limits-casing");
-      map.getPane("limits-casing").style.zIndex = 460; // debajo del dash
+      map.getPane("limits-casing").style.zIndex = 460;
     }
     if (!map.getPane("limits-dash")) {
       map.createPane("limits-dash");
-      map.getPane("limits-dash").style.zIndex = 461; // encima
+      map.getPane("limits-dash").style.zIndex = 461;
     }
   }, [map]);
   return null;
 }
 
-
-// --- Control de Zoom personalizado (+ / -) con nivel actual ---
+// Zoom custom (si lo usas)
 function CustomZoom({ min=1, max=19, shadowMin=17, shadowMax=18 }) {
   const map = useMap();
   const [z, setZ] = useState(() => map?.getZoom?.() ?? 0);
@@ -545,7 +514,7 @@ function CustomZoom({ min=1, max=19, shadowMin=17, shadowMax=18 }) {
   const zoomOut = () => map.setZoom(Math.max(min, (map.getZoom() ?? z) - 1));
 
   const inRange = z >= shadowMin && z <= shadowMax;
-  const badgeBg = inRange ? "#10b981" /* verde */ : "#f59e0b" /* ámbar */;
+  const badgeBg = inRange ? "#10b981" : "#f59e0b";
 
   return (
     <div style={{
@@ -579,7 +548,6 @@ function CustomZoom({ min=1, max=19, shadowMin=17, shadowMax=18 }) {
   );
 }
 
-// --- Columna con el orden exacto de controles ---
 function ControlsColumn({ shadowsVisible, onToggleShadows, shadowMin=17, shadowMax=18 }) {
   const map = useMap();
   const [z, setZ] = useState(() => map?.getZoom?.() ?? 0);
@@ -605,7 +573,6 @@ function ControlsColumn({ shadowsVisible, onToggleShadows, shadowMin=17, shadowM
       position:"absolute", top:12, right:12, zIndex:1000,
       display:"flex", flexDirection:"column", alignItems:"flex-end", gap:10
     }}>
-      {/* (1) Botón sombras */}
       <button
         onClick={onToggleShadows}
         style={{
@@ -624,10 +591,8 @@ function ControlsColumn({ shadowsVisible, onToggleShadows, shadowMin=17, shadowM
         {shadowsVisible ? "Ocultar sombras" : "Mostrar sombras"}
       </button>
 
-      {/* (2) Zoom con punto verde/ámbar */}
       <CustomZoom min={14} max={18} shadowMin={shadowMin} shadowMax={shadowMax} />
 
-      {/* (3) Tarjeta Sombras */}
       <div style={{
         background:"white",
         borderRadius:10,
@@ -661,13 +626,12 @@ function ControlsColumn({ shadowsVisible, onToggleShadows, shadowMin=17, shadowM
   );
 }
 
-
 function useFillToBottom(ref, extraBottom = 0) {
   const [h, setH] = useState(400);
   useLayoutEffect(() => {
     const calc = () => {
       if (!ref.current) return;
-      const top = ref.current.getBoundingClientRect().top; // distancia desde el viewport
+      const top = ref.current.getBoundingClientRect().top;
       const height = Math.max(300, window.innerHeight - top - extraBottom);
       setH(height);
     };
@@ -690,13 +654,11 @@ function AutoInvalidateOnResize({ observeRef }) {
       map.invalidateSize({ animate: false });
     });
     ro.observe(observeRef.current);
-    // también al empezar
     map.invalidateSize({ animate: false });
     return () => ro.disconnect();
   }, [map, observeRef]);
   return null;
 }
-
 
 function CelsBufferLayer({radiusMeters = 1000 }) {
   const map = useMap();
@@ -709,7 +671,7 @@ function CelsBufferLayer({radiusMeters = 1000 }) {
     if (!map.getPane(paneName)) {
       map.createPane(paneName);
       const p = map.getPane(paneName);
-      p.style.zIndex = 560;        // 🔼 higher than buildings/selection panes
+      p.style.zIndex = 560;
       p.style.pointerEvents = "none";
     }
   }, [map]);
@@ -725,7 +687,6 @@ function CelsBufferLayer({radiusMeters = 1000 }) {
     const params = new URLSearchParams({ bbox: cityBBox.join(","), limit: "20000", offset: "0" });
     const url = `${API_BASE}/cels/features?${params}`;
     console.log("Fetching CELS:", url);
-
 
     (async () => {
       try {
@@ -770,8 +731,22 @@ function CelsBufferLayer({radiusMeters = 1000 }) {
 
         group.addTo(map);
         layerRef.current = group;
-        if (group.getLayers().length) {
-           map.fitBounds(group.getBounds().pad(0.2));
+        
+        // FIX: Verificar que el grupo tiene capas antes de intentar getBounds
+        const layers = group.getLayers();
+        if (layers && layers.length > 0) {
+          // Calcular bounds manualmente desde las capas
+          const bounds = L.latLngBounds();
+          layers.forEach(layer => {
+            if (layer.getLatLng) {
+              bounds.extend(layer.getLatLng());
+            } else if (layer.getBounds) {
+              bounds.extend(layer.getBounds());
+            }
+          });
+          if (bounds.isValid()) {
+            map.fitBounds(bounds.pad(0.2));
+          }
         }
       } catch (e) {
         if (e.name !== "AbortError") console.error("CELS fetch error:", e);
@@ -790,25 +765,53 @@ function CelsBufferLayer({radiusMeters = 1000 }) {
 
 
 
+function OverlayVisibilityBinder({ targetRef, onChange }) {
+  const map = useMap();
+  useEffect(() => {
+    const update = () => {
+      if (targetRef.current && map) onChange(!!map.hasLayer(targetRef.current));
+    };
+    const onAdd = (e) => { if (e.layer === targetRef.current) onChange(true); };
+    const onRemove = (e) => { if (e.layer === targetRef.current) onChange(false); };
+    map.on("overlayadd", onAdd);
+    map.on("overlayremove", onRemove);
+    update();
+    return () => {
+      map.off("overlayadd", onAdd);
+      map.off("overlayremove", onRemove);
+    };
+  }, [map, targetRef, onChange]);
+  return null;
+}
 
 export default function NewMap() {
+
+  const [celsHits, setCelsHits] = useState([]);     // CELS that include the selected building
+  const [celsHitsLoading, setCelsHitsLoading] = useState(false);
+  const [celsHitsError, setCelsHitsError] = useState("");
+
+  const [irradianceVisible, setIrradianceVisible] = useState(false); 
+  const [celsVisible, setCelsVisible] = useState(true);
+  const [certificateVisible, setCertificateVisible] = useState(false);
+
+
   const mapBoxRef = useRef(null);
-  const mapHeight = useFillToBottom(mapBoxRef, 8); 
+  const mapHeight = useFillToBottom(mapBoxRef, 8);
 
   const [shadowsVisible, setShadowsVisible] = useState(false);
+  
 
   const [buildingsLoaded, setBuildingsLoaded] = useState(false);
   const [celsLoaded, setCelsLoaded] = useState(false);
 
   const selectionRef = useRef(null);
-  const mapRef = useRef(null); 
+  const mapRef = useRef(null);
 
   const theme = useTheme();
   const colors = tokens(theme.palette.mode);
 
   const mapProps = useMemo(() => ({ center: [40.305637, -3.730671], zoom: 15 }), []);
   const [bbox, setBbox] = useState(null);
-  
 
   // -------- EMSV datasets --------
   const [loadingEmsv, setLoadingEmsv] = useState(true);
@@ -816,7 +819,7 @@ export default function NewMap() {
   const [geoLimites, setGeoLimites] = useState(null);
   const [geoConViv, setGeoConViv] = useState(null);
   const [geoSinViv, setGeoSinViv] = useState(null);
-  const [jsonRef, setJsonRef] = useState(null); 
+  const [jsonRef, setJsonRef] = useState(null);
 
   // ---------- finder UI state ----------
   const [street, setStreet] = useState("");
@@ -824,7 +827,7 @@ export default function NewMap() {
   const [searching, setSearching] = useState(false);
   const [searchError, setSearchError] = useState("");
 
-  // --- estadísticas del edificio seleccionado ---
+  // --- estadísticas del edificio ---
   const [bStats, setBStats] = useState(null);
   const [bStatsLoading, setBStatsLoading] = useState(false);
   const [bStatsError, setBStatsError] = useState("");
@@ -839,7 +842,8 @@ export default function NewMap() {
     return res.json();
   }
 
-
+  const shadowsGroupRef = useRef(null);
+  const celsGroupRef = useRef(null);
 
   // fetch EMSV on mount
   useEffect(() => {
@@ -848,8 +852,6 @@ export default function NewMap() {
       try {
         setLoadingEmsv(true);
         setErrorEmsv("");
-        
-        
         const res = await fetch(EMSV_URL);
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = await res.json();
@@ -868,33 +870,26 @@ export default function NewMap() {
     return () => { cancelled = true; };
   }, []);
 
-  
   const availableStreets = useMemo(() => {
     if (!jsonRef) return [];
-    
     const streets = new Set();
-    
     if (typeof jsonRef === 'object' && !Array.isArray(jsonRef)) {
       Object.keys(jsonRef).forEach(calle => streets.add(calle));
     }
-    
-    return Array.from(streets).sort((a, b) => 
+    return Array.from(streets).sort((a, b) =>
       a.localeCompare(b, 'es', { sensitivity: 'base' })
     );
   }, [jsonRef]);
 
   const availableNumbers = useMemo(() => {
     if (!jsonRef || !street) return [];
-    
     const numbers = new Set();
-    
     if (typeof jsonRef === 'object' && !Array.isArray(jsonRef)) {
       const calleData = jsonRef[street];
       if (calleData && typeof calleData === 'object') {
         Object.keys(calleData).forEach(num => numbers.add(num));
       }
     }
-    
     return Array.from(numbers).sort((a, b) => {
       const numA = parseInt(a, 10);
       const numB = parseInt(b, 10);
@@ -947,10 +942,6 @@ export default function NewMap() {
     }
   }
 
-
-
-
-  // dentro de NewMap()
   const clearSelectionAndPopup = () => {
     const map = mapRef.current;
     if (!map) return;
@@ -961,13 +952,10 @@ export default function NewMap() {
     map.closePopup();
   };
 
-
-
   const handleSearch = async () => {
     setSearchError("");
     const calle = street.trim();
     const numero = portal.trim();
-    
     if (!calle || !numero) {
       setSearchError("Introduce calle y número.");
       return;
@@ -980,16 +968,12 @@ export default function NewMap() {
         number: numero,
         include_feature: "true",
       });
-      
       const res = await fetch(`${API_BASE}/address/lookup?${qs}`);
-      
       if (!res.ok) {
         setSearchError(res.status === 404 ? "Dirección no encontrada." : `Error ${res.status}`);
         return;
       }
-      
       const data = await res.json();
-      
       if (!data.feature) {
         setSearchError("Referencia encontrada pero sin geometría.");
         return;
@@ -998,19 +982,8 @@ export default function NewMap() {
         const f0 = data.features[0];
         console.log("first CELS point:", f0.geometry);
       }
-
       const feature = data.feature;
-      const p = feature.properties || {};
-      
-      //const html = `
-      //  <div style="font: 13px system-ui">
-      //    <div style="font-weight:700;margin-bottom:4px;">${calle.toUpperCase()} ${numero}</div>
-      //    <div><b>Referencia:</b> ${p.reference ?? data.reference}</div>
-      //  </div>
-      //`;
-      //highlightSelectedFeature(mapRef.current, feature, html);
-      highlightSelectedFeature(mapRef.current, feature)
-      
+      highlightSelectedFeature(mapRef.current, feature);
     } catch (e) {
       console.error(e);
       setSearchError("No se pudo buscar la dirección.");
@@ -1033,10 +1006,7 @@ export default function NewMap() {
   ];
 
   const handleBuildingClick = async (feature) => {
-    // Pintar selección
     highlightSelectedFeature(mapRef.current, feature);
-
-    // Calcular estadísticas de sombras
     try {
       setBStatsError("");
       setBStatsLoading(true);
@@ -1048,7 +1018,7 @@ export default function NewMap() {
         const circle = turf.circle([x, y], 8, { units: "meters", steps: 48 });
         geom = circle.geometry;
       }
-      
+
       const stats = await fetch(`${API_BASE}/shadows/zonal`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1062,177 +1032,252 @@ export default function NewMap() {
     } finally {
       setBStatsLoading(false);
     }
+
+    try {
+    setCelsHitsError("");
+    setCelsHitsLoading(true);
+    setCelsHits([]);
+
+    const res = await fetch(`${API_BASE}/cels/within-building`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ geometry: geom }),
+    });
+
+    if (!res.ok) {
+      const err = await res.text();
+      throw new Error(`HTTP ${res.status}: ${err}`);
+    }
+
+    const data = await res.json();
+    setCelsHits(data.cels || []);
+  } catch (e) {
+    console.error("Error fetching CELS for building:", e);
+    setCelsHitsError("No se pudo determinar qué CELS incluyen este edificio.");
+    setCelsHits([]);
+  } finally {
+    setCelsHitsLoading(false);
+  }
+
   };
+
+
+
   
 
-
-
   return (
-      <>
-        <SubUpBar
-          title={"Visor de Datos Públicos de Vivienda"}
-          crumbs={[["Inicio", "/"], ["Visor EPIU", "/visor-epiu"]]}
-          info={{ title: "Visor de Datos Públicos de Vivienda", description: (<Typography />) }}
-        />
-        <Box m="10px">
-          <Grid container spacing={2} alignItems="stretch">
-            <Grid item xs={12} md={8}>
-              <Box
-                ref={mapBoxRef}
-                sx={{
-                // Altura EXACTA hasta el bottom del viewport
+    <>
+      <SubUpBar
+        title={"Visor de Datos Públicos de Vivienda"}
+        crumbs={[["Inicio", "/"], ["Visor EPIU", "/visor-epiu"]]}
+        info={{ title: "Visor de Datos Públicos de Vivienda", description: (<Typography />) }}
+      />
+      <Box m="10px">
+        <Grid container spacing={2} alignItems="stretch">
+          <Grid item xs={12} md={8}>
+            <Box
+              ref={mapBoxRef}
+              sx={{
                 height: mapHeight,
                 minHeight: 380,
                 bgcolor: "#f9fafb",
                 borderRadius: "10px",
                 overflow: "hidden",
                 position: "relative",
+              }}
+            >
+              <MapContainer
+                center={[40.307927, -3.732297]}
+                minZoom={14}
+                maxZoom={18}
+                zoom={mapProps.zoom}
+                maxBounds={bounds}
+                maxBoundsViscosity={1.0}
+                zoomControl={false}
+                style={{ height: "100%", width: "100%", background: "#f3f4f6" }}
+              >
+                <AutoInvalidateOnResize observeRef={mapBoxRef} />
+                <MapLoadingOverlay loading={!buildingsLoaded} />
+                <StaticBuildingsLayer
+                  apiBase={API_BASE}
+                  onLoadComplete={() => setBuildingsLoaded(true)}
+                  onBuildingClick={handleBuildingClick}
+                  clickable={!shadowsVisible}
+                />
+                <BindMapRef mapRef={mapRef} />
+                <SetupLimitPanes />
+                <BboxWatcher onBboxChange={setBbox} />
+                <TileLayer
+                  url="https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png"
+                  attribution='&copy; <a href="https://carto.com/">CARTO</a>'
+                  subdomains={["a", "b", "c", "d"]}
+                  maxZoom={19}
+                  opacity={0.8}
+                  zIndex={0}
+                />
+
+
+                {/* Capas reales montadas por estado */}
+                {irradianceVisible && (
+                  <>
+                    {bbox && <ShadowsLayer bbox={bbox} minZoom={17} maxZoom={18} />}
+                    <Legend minZoom={17} maxZoom={18} />
+                  </>
+                )}
+                {celsVisible && <CelsBufferLayer radiusMeters={500} />}
+
+                {certificateVisible && (
+                // TODO: sustituye por tu capa real de certificados
+                null
+                )}
+
+                <ZonalDrawControl onStats={(s) => console.log("Zonal stats:", s)} />
+                {geoLimites && (
+                  <LayerGeoJSON
+                    fc={geoLimites}
+                    style={{
+                      pane: "limits-dash",
+                      color: "#c5c5c5ff",
+                      weight: 2,
+                      opacity: 1,
+                      dashArray: "6 6",
+                      fillOpacity: 0,
+                      interactive: false,
+                      lineCap: "butt",
+                      lineJoin: "round",
+                      smoothFactor: 1.2,
+                    }}
+                  />
+                )}
+              </MapContainer>
+            </Box>
+          </Grid>
+
+          <Grid item xs={12} md={4}>
+            <Stack spacing={2} sx={{ height: "100%" }}>
+              <Box
+                sx={{
+                  backgroundColor: "#f3f4f6",
+                  borderRadius: "10px",
+                  p: "0.75rem 1rem",
                 }}
               >
-                <MapContainer
-                  center={[40.307927, -3.732297]}
-                  minZoom={14}
-                  maxZoom={18}
-                  zoom={mapProps.zoom}
-                  maxBounds={bounds}
-                  maxBoundsViscosity={1.0}
-                  zoomControl={false}
-                  style={{ height: "100%", width: "100%", background: "#f3f4f6" }}
-                >
-                  <AutoInvalidateOnResize observeRef={mapBoxRef} />
-                  <MapLoadingOverlay loading={!buildingsLoaded} />
-                  <StaticBuildingsLayer 
-                    apiBase={API_BASE} 
-                    onLoadComplete={() => setBuildingsLoaded(true)}
-                    onBuildingClick={handleBuildingClick}
-                    clickable={!shadowsVisible} 
-                  />
-                  <BindMapRef mapRef={mapRef} />
-                  <SetupLimitPanes />
-                  <BboxWatcher onBboxChange={setBbox} />
-                  <TileLayer
-                    url="https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png"
-                    attribution='&copy; <a href="https://carto.com/">CARTO</a>'
-                    subdomains={["a", "b", "c", "d"]}
-                    maxZoom={19}
-                    opacity={0.8}
-                    zIndex={0}
-                  />
-                  
-                  <ControlsColumn
-                    shadowsVisible={shadowsVisible}
-                    onToggleShadows={() => setShadowsVisible(v => !v)}
-                    shadowMin={17}
-                    shadowMax={18}
-                  />
-
-                  {shadowsVisible ? (
-                    <>
-                      {bbox && <ShadowsLayer bbox={bbox} minZoom={17} maxZoom={18} />}
-                      <Legend minZoom={17} maxZoom={18} />
-                    </>
-                  ) : (
-                    <CelsBufferLayer radiusMeters={1000} />
-                  )}
-
-
-                  <ZonalDrawControl onStats={(s) => console.log("Zonal stats:", s)} />
-                  {geoLimites && (
-                    <LayerGeoJSON
-                      fc={geoLimites}
-                      style={{
-                        pane: "limits-dash",
-                        color: "#c5c5c5ff",
-                        weight: 2,
-                        opacity: 1,
-                        dashArray: "6 6",
-                        fillOpacity: 0,
-                        interactive: false,
-                        lineCap: "butt",
-                        lineJoin: "round",
-                        smoothFactor: 1.2,
-                      }}
-                    />
-                  )}
-                </MapContainer>
-              </Box>
-            </Grid>
-
-            {/* Rest of your component stays the same... */}
-            <Grid item xs={12} md={4}>
-              <Stack spacing={2} sx={{ height: "100%" }}>
-                <Box
+                <Typography
+                  variant="h6"
+                  color="#fff"
+                  fontWeight={600}
                   sx={{
-                    backgroundColor: "#f3f4f6",
-                    borderRadius: "10px",
-                    p: "0.75rem 1rem",
+                    background: colors.blueAccent[400],
+                    borderRadius: "6px",
+                    px: "0.6rem",
+                    py: "0.35rem",
+                    mb: 1,
+                    lineHeight: 1.2,
                   }}
                 >
-                  <Typography
-                    variant="h6"
-                    color="#fff"
-                    fontWeight={600}
-                    sx={{
-                      background: colors.blueAccent[400],
-                      borderRadius: "6px",
-                      px: "0.6rem",
-                      py: "0.35rem",
-                      mb: 1,
-                      lineHeight: 1.2,
-                    }}
-                  >
-                    Buscador de Direcciones
-                  </Typography>
+                  Buscador de Direcciones
+                </Typography>
 
-                  <SearchBoxEMSV
-                    jsonRef={jsonRef}
-                    loading={loadingEmsv}
-                    apiBase={API_BASE}
-                    onFeature={async (feature) => {
-                      highlightSelectedFeature(mapRef.current, feature);
+                <SearchBoxEMSV
+                  jsonRef={jsonRef}
+                  loading={loadingEmsv}
+                  apiBase={API_BASE}
+                  onFeature={async (feature) => {
+                    highlightSelectedFeature(mapRef.current, feature);
+                    
+                    // --- 1. Calcular estadísticas de sombras ---
+                    try {
+                      setBStatsError("");
+                      setBStatsLoading(true);
+                      setBStats(null);
 
+                      let geom = feature?.geometry ?? feature;
+                      if (geom?.type === "Point" && Array.isArray(geom.coordinates)) {
+                        const [x, y] = geom.coordinates;
+                        const circle = turf.circle([x, y], 8, { units: "meters", steps: 48 });
+                        geom = circle.geometry;
+                      }
+                      
+                      const stats = await fetch(`${API_BASE}/shadows/zonal`, {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ geometry: geom }),
+                      }).then(r => r.json());
+
+                      setBStats(stats);
+
+                      // --- 2. Consultar membresía a CELS ---
                       try {
-                        setBStatsError("");
-                        setBStatsLoading(true);
-                        setBStats(null);
+                        setCelsHitsError("");
+                        setCelsHitsLoading(true);
+                        setCelsHits([]);
 
-                        let geom = feature?.geometry ?? feature;
-                        if (geom?.type === "Point" && Array.isArray(geom.coordinates)) {
-                          const [x, y] = geom.coordinates;
-                          const circle = turf.circle([x, y], 8, { units: "meters", steps: 48 });
-                          geom = circle.geometry;
-                        }
-                        const stats = await fetch(`${API_BASE}/shadows/zonal`, {
+                        const hitsRes = await fetch(`${API_BASE}/cels/within?radius_m=500`, {
                           method: "POST",
                           headers: { "Content-Type": "application/json" },
                           body: JSON.stringify({ geometry: geom }),
-                        }).then(r => r.json());
-
-                        setBStats(stats);
+                        });
+                        
+                        if (!hitsRes.ok) throw new Error(`HTTP ${hitsRes.status}`);
+                        const hits = await hitsRes.json();
+                        setCelsHits(hits.cels || []);
                       } catch (e) {
                         console.error(e);
-                        setBStatsError("No se pudieron calcular las estadísticas de sombras para este edificio.");
+                        setCelsHitsError("No se pudo consultar la pertenencia a CELS.");
+                        setCelsHits([]);
                       } finally {
-                        setBStatsLoading(false);
+                        setCelsHitsLoading(false);
                       }
-                    }}
-                    onReset={() => {
-                      clearSelectionAndPopup();
-                      setBStats(null);
-                      setBStatsError("");
-                      setBStatsLoading(false);
-                    }}
-                  />
-                </Box>
 
-                <AdditionalPanel stats={bStats} loading={bStatsLoading} error={bStatsError} />
-              </Stack>
-            </Grid>
+                    } catch (e) {
+                      console.error(e);
+                      setBStatsError("No se pudieron calcular las estadísticas de sombras para este edificio.");
+                    } finally {
+                      setBStatsLoading(false);
+                    }
+                  }}
+
+                  onReset={() => {
+                    clearSelectionAndPopup();
+                    setBStats(null);
+                    setBStatsError("");
+                    setBStatsLoading(false);
+                    setCelsHits([]);          // limpiar CELS
+                    setCelsHitsError("");
+                    setCelsHitsLoading(false);
+                  }}
+                />
+              </Box>
+
+              {/* Panel de capas (Irradiance / CELS / Certificate) */}
+
+              <RightLayerPanel
+                irradianceOn={irradianceVisible}
+                celsOn={celsVisible}
+                certificateOn={certificateVisible}
+                zoom={mapRef.current?.getZoom?.() ?? 0}
+                celsHits={celsHits}
+                celsHitsLoading={celsHitsLoading}
+                celsHitsError={celsHitsError}
+                onToggleIrradiance={() => setIrradianceVisible(v => !v)}
+                onToggleCELS={() => setCelsVisible(v => !v)}
+                onToggleCertificate={() => setCertificateVisible(v => !v)}
+                onJumpToIrradianceZoom={() => {
+                  const z = mapRef.current?.getZoom?.() ?? 0;
+                  const target = z < 17 ? 17 : z > 18 ? 18 : z;
+                  mapRef.current?.flyTo(mapRef.current.getCenter(), target, { duration: 0.6 });
+                }}
+              />
+
+              {/* (Opcional) estadísticas del edificio pueden quedarse debajo si te interesa */}
+              <AdditionalPanel stats={bStats} loading={bStatsLoading} error={bStatsError} />
+            </Stack>
           </Grid>
-        </Box>
-      </>
-    );
-  }
+        </Grid>
+      </Box>
+    </>
+  );
+}
 
 function LayerGeoJSON({ fc, style }) {
   const map = useMap();
