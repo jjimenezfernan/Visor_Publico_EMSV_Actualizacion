@@ -136,6 +136,17 @@ export default function RightLayerPanel({
           <AccordionSummary expandIcon={<ExpandMoreIcon />}>
             <Typography fontWeight={600}>Información del certificado</Typography>
           </AccordionSummary>
+          
+          </Accordion>
+      </Section>
+
+
+      {/* CERTIFICATE */}
+      <Section title="Certificados Energéticos" headerBg={colors.blueAccent[400]}>
+        <Accordion disableGutters square sx={accordionSx}>
+          <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+            <Typography fontWeight={600}>Información del certificado</Typography>
+          </AccordionSummary>
           <AccordionDetails>
             <Stack spacing={1.25}>
               <Stack direction="row" alignItems="center" justifyContent="space-between">
@@ -177,27 +188,6 @@ export default function RightLayerPanel({
                 )
               )}
 
-            </Stack>
-          </AccordionDetails>
-        </Accordion>
-      </Section>
-
-
-      {/* CELS / ENERGY COMMUNITY */}
-      <Section title="CELS / Autoconsumos energéticos" headerBg={colors.blueAccent[400]}>
-        <Accordion disableGutters square defaultExpanded sx={accordionSx}>
-          <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-            <Typography fontWeight={600}>CELS (radio 500 m)</Typography>
-          </AccordionSummary>
-          <AccordionDetails>
-            <Stack spacing={1.25}>
-              <Stack direction="row" alignItems="center" justifyContent="space-between">
-                <Typography>Mostrar capa</Typography>
-                <Switch checked={celsOn} onChange={onToggleCELS} />
-              </Stack>
-              <Typography variant="caption" color="text.secondary">
-                Visualiza el área potencial de una Comunidad Energética alrededor de cada CELS.
-              </Typography>
             </Stack>
           </AccordionDetails>
         </Accordion>

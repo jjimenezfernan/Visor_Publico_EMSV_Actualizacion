@@ -79,6 +79,29 @@ def parse_bbox(bbox: str | None) -> tuple[str, list]:
 def fc(features: list[dict]) -> dict:
     return {"type": "FeatureCollection", "features": features}
 
+def parse_bbox_for_srid(bbox: str | None, target_srid: int) -> tuple[str, list]:
+    if not bbox:
+        return "", []
+    parts = bbox.split(",")
+    if len(parts) != 4:
+        raise HTTPException(400, "bbox debe ser 'minx,miny,maxx,maxy'")
+    minx, miny, maxx, maxy = map(float, parts)
+    where = (
+        "WHERE ST_Intersects("
+        "  geom,"
+        "  ST_Transform("
+        "    ST_MakeEnvelope(?, ?, ?, ?),"
+        "    'EPSG:4326',"
+        f"    'EPSG:{target_srid}',"
+        "    TRUE"                  # <-- fuerza lon,lat
+        "  )"
+        ")"
+    )
+    params = [minx, miny, maxx, maxy]
+    return where, params
+
+
+
 
 # ---------- Buffers ----------
 def _select_buffers(where_sql: str, params: list) -> List[Tuple]:
@@ -521,3 +544,59 @@ def cadastre_by_refcat(
             "properties": json.loads(props) if isinstance(props, str) else (props or {})
         }
     }
+
+
+
+
+
+
+
+class ZonalReq(BaseModel):
+    geometry: dict  # GeoJSON Polygon/MultiPolygon/Point/...
+
+@app.post("/irradiance/zonal")
+def irradiance_zonal(req: ZonalReq):
+    geojson = json.dumps(req.geometry)
+    n, avg, mn, mx = q("""
+        WITH zone AS (
+          SELECT ST_Transform(
+                     ST_GeomFromGeoJSON(?::VARCHAR),
+                     'EPSG:4326','EPSG:25830', TRUE   -- <-- fuerza lon,lat de entrada
+                 ) AS g
+        ),
+        hits AS (
+          SELECT p.value
+          FROM irr_points p, zone z
+          WHERE ST_Intersects(p.geom, z.g)
+        )
+        SELECT COUNT(*), AVG(value), MIN(value), MAX(value) FROM hits;
+    """, [geojson])[0]
+
+    return {
+        "count": int(n or 0),
+        "avg": float(avg) if avg is not None else None,
+        "min": float(mn) if mn is not None else None,
+        "max": float(mx) if mx is not None else None,
+    }
+
+
+@app.get("/irradiance/features")
+def irradiance_features(
+    bbox: str | None = Query(None, description="minx,miny,maxx,maxy (WGS84)"),
+):
+    where, params = parse_bbox_for_srid(bbox, target_srid=25830)
+    rows = q(f"""
+        SELECT
+          ST_AsGeoJSON(ST_Transform(geom, 'EPSG:25830','EPSG:4326', TRUE)) AS gjson,
+          value
+        FROM irr_points
+        {where};
+    """, params)
+
+    features = [{
+        "type": "Feature",
+        "geometry": json.loads(gjson),
+        "properties": {"value": float(val) if val is not None else None}
+    } for gjson, val in rows]
+
+    return fc(features)
