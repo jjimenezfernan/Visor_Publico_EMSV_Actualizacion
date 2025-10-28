@@ -600,3 +600,40 @@ def irradiance_features(
     } for gjson, val in rows]
 
     return fc(features)
+
+
+
+# ---------- Building metrics ----------
+@app.get("/buildings/metrics")
+def buildings_metrics(reference: str):
+    ref = reference.strip()
+    rows = q("""
+        SELECT reference,
+               irr_average,
+               area_m2,
+               superficie_util_m2,
+               pot_kWp,
+               energy_total_kWh,
+               factor_capacidad_pct,
+               irr_mean_kWhm2_y
+        FROM edificios_metrics
+        WHERE UPPER(reference) = UPPER(?)
+        LIMIT 1;
+    """, [ref])
+
+    if not rows:
+        raise HTTPException(404, "No metrics for this reference")
+
+    r = rows[0]
+    return {
+        "reference": r[0],
+        "metrics": {
+            "irr_average": float(r[1]) if r[1] is not None else None,
+            "area_m2": float(r[2]) if r[2] is not None else None,
+            "superficie_util_m2": float(r[3]) if r[3] is not None else None,
+            "pot_kWp": float(r[4]) if r[4] is not None else None,
+            "energy_total_kWh": float(r[5]) if r[5] is not None else None,
+            "factor_capacidad_pct": float(r[6]) if r[6] is not None else None,
+            "irr_mean_kWhm2_y": float(r[7]) if r[7] is not None else None,
+        }
+    }

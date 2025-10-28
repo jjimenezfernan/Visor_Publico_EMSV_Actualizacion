@@ -88,11 +88,14 @@ const accordionSx = {
   },
 };
 
+
 export default function RightLayerPanel({
   irradianceOn, celsOn, certificateOn, zoom,
   celsHits = [], celsHitsLoading = false, celsHitsError = "",
-  onToggleIrradiance, onToggleCELS, onToggleCertificate, onJumpToIrradianceZoom
+  onToggleIrradiance, onToggleCELS, onToggleCertificate, onJumpToIrradianceZoom,
+  buildingRef = null, buildingMetrics = null, buildingMetricsLoading = false, buildingMetricsError = ""
 }) {
+  const fmt = (v, d=1) => (v == null ? "–" : Number(v).toFixed(d));
   const theme = useTheme();
   const colors = tokens(theme.palette.mode);
   const inIrradianceZoom = zoom >= 17 && zoom <= 18;
@@ -103,7 +106,7 @@ export default function RightLayerPanel({
       <Section title="Irradiancia" headerBg={colors.blueAccent[400]}>
         <Accordion disableGutters square sx={accordionSx}>
           <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-            <Typography fontWeight={600}>Mapa de sombras</Typography>
+            <Typography fontWeight={600}>Mapa de irradiancia</Typography>
           </AccordionSummary>
           <AccordionDetails>
             <Stack spacing={1.25}>
@@ -122,14 +125,57 @@ export default function RightLayerPanel({
                   </Button>
                 </Stack>
               )}
-              <LegendMini />
+              {/*<LegendMini /> */}
             </Stack>
           </AccordionDetails>
         </Accordion>
+        <Accordion disableGutters square sx={accordionSx} defaultExpanded>
+          <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+            <Typography fontWeight={600}>Información del edificio</Typography>
+          </AccordionSummary>
+          <AccordionDetails>
+            {!buildingRef && !buildingMetricsLoading && (
+              <Typography variant="caption" color="text.secondary">
+                Selecciona un edificio en el mapa o con el buscador.
+              </Typography>
+            )}
+
+            {buildingMetricsLoading && (
+              <Typography variant="caption">Cargando información…</Typography>
+            )}
+
+            {buildingMetricsError && (
+              <Typography variant="caption" color="error">{buildingMetricsError}</Typography>
+            )}
+
+            {buildingRef && buildingMetrics && !buildingMetricsLoading && !buildingMetricsError && (
+              <Stack spacing={0.75}>
+                <Typography variant="body2" fontWeight={700}>Ref. catastral: {buildingRef}</Typography>
+                <Divider />
+                <Typography variant="caption" color="text.secondary">Irradiancia media (kWh/m²·año)</Typography>
+                <Typography variant="body2">{fmt(buildingMetrics.irr_mean_kWhm2_y, 1)}</Typography>
+
+                <Typography variant="caption" color="text.secondary">Área de cubierta (m²)</Typography>
+                <Typography variant="body2">{fmt(buildingMetrics.area_m2, 1)}</Typography>
+
+                <Typography variant="caption" color="text.secondary">Superficie útil (m²)</Typography>
+                <Typography variant="body2">{fmt(buildingMetrics.superficie_util_m2, 1)}</Typography>
+
+                <Typography variant="caption" color="text.secondary">Potencia FV estimada (kWp)</Typography>
+                <Typography variant="body2">{fmt(buildingMetrics.pot_kWp, 1)}</Typography>
+
+                <Typography variant="caption" color="text.secondary">Energía anual estimada (kWh)</Typography>
+                <Typography variant="body2">{fmt(buildingMetrics.energy_total_kWh, 0)}</Typography>
+
+                <Typography variant="caption" color="text.secondary">Factor de capacidad (%)</Typography>
+                <Typography variant="body2">{fmt(buildingMetrics.factor_capacidad_pct, 1)}</Typography>
+              </Stack>
+            )}
+          </AccordionDetails>
+        </Accordion>
       </Section>
-        
 
-
+      
       {/* CERTIFICATE */}
       <Section title="Certificados Energéticos" headerBg={colors.blueAccent[400]}>
         <Accordion disableGutters square sx={accordionSx}>
@@ -142,10 +188,10 @@ export default function RightLayerPanel({
 
 
       {/* CERTIFICATE */}
-      <Section title="Certificados Energéticos" headerBg={colors.blueAccent[400]}>
+      <Section title="CELS y Autoconsumo" headerBg={colors.blueAccent[400]}>
         <Accordion disableGutters square sx={accordionSx}>
           <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-            <Typography fontWeight={600}>Información del certificado</Typography>
+            <Typography fontWeight={600}>Información de los CELS y autoconsumos</Typography>
           </AccordionSummary>
           <AccordionDetails>
             <Stack spacing={1.25}>

@@ -115,6 +115,22 @@ const colorForShadowCount = (v) => {
 
 
 // ---------- helpers ----------
+
+async function fetchCELSHitsForGeometry(geom, radiusM = 500) {
+  const resp = await fetch(`${API_BASE}/cels/within?radius_m=${radiusM}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ geometry: geom }),
+  });
+  if (!resp.ok) {
+    const msg = await resp.text().catch(() => "");
+    throw new Error(`CELS HTTP ${resp.status}: ${msg}`);
+  }
+  const json = await resp.json();
+  return json.cels || [];
+}
+
+
 const stripAccents = (s) => s.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
 const norm = (s) => stripAccents(String(s ?? "")).toUpperCase().replace(/\s+/g, " ").trim();
 
@@ -970,7 +986,9 @@ function AutoInvalidateOnResize({ observeRef }) {
   return null;
 }
 
-function CelsBufferLayer({radiusMeters = 1000 }) {
+
+
+function CelsBufferLayer({ radiusMeters = 1000 }) {
   const map = useMap();
   const layerRef = useRef(null);
   const abortRef = useRef(null);
@@ -981,8 +999,8 @@ function CelsBufferLayer({radiusMeters = 1000 }) {
     if (!map.getPane(paneName)) {
       map.createPane(paneName);
       const p = map.getPane(paneName);
-      p.style.zIndex = 560;
-      p.style.pointerEvents = "none";
+      p.style.zIndex = 560;          // ⬅️ visible above buildings
+      p.style.pointerEvents = "none"; // ⬅️ pane ignores mouse events (click-through)
     }
   }, [map]);
 
@@ -993,10 +1011,10 @@ function CelsBufferLayer({radiusMeters = 1000 }) {
     const ac = new AbortController();
     abortRef.current = ac;
 
+    // Build the URL (you lost this in your last paste)
     const cityBBox = [-3.766250610351563, 40.279394708323274, -3.685398101806641, 40.32560453181949];
     const params = new URLSearchParams({ bbox: cityBBox.join(","), limit: "20000", offset: "0" });
     const url = `${API_BASE}/cels/features?${params}`;
-    console.log("Fetching CELS:", url);
 
     (async () => {
       try {
@@ -1004,60 +1022,50 @@ function CelsBufferLayer({radiusMeters = 1000 }) {
         if (!res.ok) return;
         const data = await res.json();
 
-        console.log("CELS features:", data.features?.length ?? 0);
         const group = L.layerGroup([], { pane: paneName });
 
         (data.features || []).forEach((f) => {
           let lat, lng;
           if (f.geometry?.type === "Point") {
-            const [x, y] = f.geometry.coordinates;
-            lng = x; lat = y;
+            const [x, y] = f.geometry.coordinates; lng = x; lat = y;
           } else {
             const center = L.geoJSON(f.geometry).getBounds().getCenter();
             lat = center.lat; lng = center.lng;
           }
+
           const is2 = Number(f.properties?.auto_CEL) === 2;
           const stroke = is2 ? "#ef4444" : "#2563eb";
           const fill   = is2 ? "#fecaca" : "#c7d2fe";
+
           const ring = L.circle([lat, lng], {
             radius: radiusMeters,
             color: stroke,
             weight: 2,
             fillColor: fill,
             fillOpacity: 0.25,
-            pane: paneName
+            pane: paneName,
+            interactive: false,           
+            bubblingMouseEvents: false,   
           });
+
           const dot = L.circleMarker([lat, lng], {
             radius: 4,
             color: stroke,
             weight: 2,
             fillColor: stroke,
             fillOpacity: 1,
-            pane: paneName
+            pane: paneName,
+            interactive: false,
+            bubblingMouseEvents: false,
           });
 
           group.addLayer(ring).addLayer(dot);
         });
 
         group.addTo(map);
+        // no bringToBack(); keep it visually on top but non-clickable
         layerRef.current = group;
-        
-        // FIX: Verificar que el grupo tiene capas antes de intentar getBounds
-        const layers = group.getLayers();
-        if (layers && layers.length > 0) {
-          // Calcular bounds manualmente desde las capas
-          const bounds = L.latLngBounds();
-          layers.forEach(layer => {
-            if (layer.getLatLng) {
-              bounds.extend(layer.getLatLng());
-            } else if (layer.getBounds) {
-              bounds.extend(layer.getBounds());
-            }
-          });
-          if (bounds.isValid()) {
-            map.fitBounds(bounds.pad(0.2));
-          }
-        }
+
       } catch (e) {
         if (e.name !== "AbortError") console.error("CELS fetch error:", e);
       }
@@ -1068,11 +1076,10 @@ function CelsBufferLayer({radiusMeters = 1000 }) {
       if (layerRef.current && map) map.removeLayer(layerRef.current);
       layerRef.current = null;
     };
-  },[map, radiusMeters]);
+  }, [map, radiusMeters]);
 
   return null;
 }
-
 
 
 function OverlayVisibilityBinder({ targetRef, onChange }) {
@@ -1095,6 +1102,18 @@ function OverlayVisibilityBinder({ targetRef, onChange }) {
 }
 
 export default function NewMap() {
+
+  const [bRef, setBRef] = useState(null);
+  const [bMetrics, setBMetrics] = useState(null);
+  const [bMetricsLoading, setBMetricsLoading] = useState(false);
+  const [bMetricsError, setBMetricsError] = useState("");
+
+  async function fetchBuildingMetricsByRef(reference) {
+    const res = await fetch(`${API_BASE}/buildings/metrics?reference=${encodeURIComponent(reference)}`);
+    if (!res.ok) throw new Error(res.status === 404 ? "Sin métricas" : `HTTP ${res.status}`);
+    return res.json();
+  }
+
 
   const [celsHits, setCelsHits] = useState([]);     // CELS that include the selected building
   const [celsHitsLoading, setCelsHitsLoading] = useState(false);
@@ -1252,6 +1271,9 @@ export default function NewMap() {
     }
   }
 
+
+
+
   const clearSelectionAndPopup = () => {
     const map = mapRef.current;
     if (!map) return;
@@ -1317,17 +1339,36 @@ export default function NewMap() {
 
   const handleBuildingClick = async (feature) => {
     highlightSelectedFeature(mapRef.current, feature);
+    const reference = feature?.properties?.reference;
+    setBRef(reference || null);
+    setBMetrics(null);
+    setBMetricsError("");
+    setBMetricsLoading(!!reference);
+
+    if (reference) {
+      try {
+        const { metrics } = await fetchBuildingMetricsByRef(reference);
+        setBMetrics(metrics);
+      } catch (e) {
+        setBMetricsError(e.message || "No se pudieron cargar las métricas.");
+      } finally {
+        setBMetricsLoading(false);
+      }
+    }
+
+  
+    let geom = feature?.geometry ?? feature;
+    if (geom?.type === "Point" && Array.isArray(geom.coordinates)) {
+      const [x, y] = geom.coordinates;
+      const circle = turf.circle([x, y], 8, { units: "meters", steps: 48 });
+      geom = circle.geometry;
+    }
+
+    // 1) sombras (igual que antes)
     try {
       setBStatsError("");
       setBStatsLoading(true);
       setBStats(null);
-
-      let geom = feature?.geometry ?? feature;
-      if (geom?.type === "Point" && Array.isArray(geom.coordinates)) {
-        const [x, y] = geom.coordinates;
-        const circle = turf.circle([x, y], 8, { units: "meters", steps: 48 });
-        geom = circle.geometry;
-      }
 
       const stats = await fetch(`${API_BASE}/shadows/zonal`, {
         method: "POST",
@@ -1343,33 +1384,23 @@ export default function NewMap() {
       setBStatsLoading(false);
     }
 
+    // 2) CELS — usa el helper y NO /cels/within-building
     try {
-    setCelsHitsError("");
-    setCelsHitsLoading(true);
-    setCelsHits([]);
+      setCelsHitsError("");
+      setCelsHitsLoading(true);
+      setCelsHits([]);
 
-    const res = await fetch(`${API_BASE}/cels/within-building`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ geometry: geom }),
-    });
-
-    if (!res.ok) {
-      const err = await res.text();
-      throw new Error(`HTTP ${res.status}: ${err}`);
+      const hits = await fetchCELSHitsForGeometry(geom, 500);
+      setCelsHits(hits);
+    } catch (e) {
+      console.error("Error fetching CELS for building:", e);
+      setCelsHitsError("No se pudo determinar qué CELS incluyen este edificio.");
+      setCelsHits([]);
+    } finally {
+      setCelsHitsLoading(false);
     }
-
-    const data = await res.json();
-    setCelsHits(data.cels || []);
-  } catch (e) {
-    console.error("Error fetching CELS for building:", e);
-    setCelsHitsError("No se pudo determinar qué CELS incluyen este edificio.");
-    setCelsHits([]);
-  } finally {
-    setCelsHitsLoading(false);
-  }
-
   };
+
 
 
 
@@ -1498,7 +1529,23 @@ export default function NewMap() {
                   apiBase={API_BASE}
                   onFeature={async (feature) => {
                     highlightSelectedFeature(mapRef.current, feature);
-                    
+                    const ref = feature?.properties?.reference;
+                    setBRef(ref || null);
+                    setBMetrics(null);
+                    setBMetricsError("");
+                    setBMetricsLoading(!!ref);
+
+                    if (ref) {
+                      try {
+                        const { metrics } = await fetchBuildingMetricsByRef(ref);
+                        setBMetrics(metrics);
+                      } catch (e) {
+                        setBMetricsError(e.message || "No se pudieron cargar las métricas.");
+                      } finally {
+                        setBMetricsLoading(false);
+                      }
+                    }
+
                     
                     try {
                       setBStatsError("");
@@ -1529,23 +1576,16 @@ export default function NewMap() {
                         setCelsHitsLoading(true);
                         setCelsHits([]);
 
-                        const hitsRes = await fetch(`${API_BASE}/cels/within?radius_m=500`, {
-                          method: "POST",
-                          headers: { "Content-Type": "application/json" },
-                          body: JSON.stringify({ geometry: geom }),
-                        });
-                        
-                        if (!hitsRes.ok) throw new Error(`HTTP ${hitsRes.status}`);
-                        const hits = await hitsRes.json();
-                        setCelsHits(hits.cels || []);
+                        const hits = await fetchCELSHitsForGeometry(geom, 500);
+                        setCelsHits(hits);
+                        const center = selectionRef.current?.getBounds?.()?.getCenter?.();                       
                       } catch (e) {
-                        console.error(e);
-                        setCelsHitsError("No se pudo consultar la pertenencia a CELS.");
+                        console.error("Error fetching CELS for building:", e);
+                        setCelsHitsError("No se pudo determinar qué CELS incluyen este edificio.");
                         setCelsHits([]);
                       } finally {
                         setCelsHitsLoading(false);
                       }
-
                     } catch (e) {
                       console.error(e);
                       setBStatsError("No se pudieron calcular las estadísticas de sombras para este edificio.");
@@ -1568,6 +1608,7 @@ export default function NewMap() {
 
               {/* Panel de capas (Irradiance / CELS / Certificate) */}
 
+
               <RightLayerPanel
                 irradianceOn={irradianceVisible}
                 celsOn={celsVisible}
@@ -1584,7 +1625,12 @@ export default function NewMap() {
                   const target = z < 17 ? 17 : z > 18 ? 18 : z;
                   mapRef.current?.flyTo(mapRef.current.getCenter(), target, { duration: 0.6 });
                 }}
+                buildingRef={bRef}
+                buildingMetrics={bMetrics}
+                buildingMetricsLoading={bMetricsLoading}
+                buildingMetricsError={bMetricsError}
               />
+
 
               {/* (Opcional) estadísticas del edificio pueden quedarse debajo si te interesa */}
               <AdditionalPanel stats={bStats} loading={bStatsLoading} error={bStatsError} />
