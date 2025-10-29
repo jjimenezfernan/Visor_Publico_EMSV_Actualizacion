@@ -9,6 +9,8 @@ import HomeOutlinedIcon from "@mui/icons-material/HomeOutlined";
 import CampaignIcon from '@mui/icons-material/Campaign';
 import ContactPhoneIcon from '@mui/icons-material/ContactPhone';
 import MapIcon from "@mui/icons-material/Map";
+import WbSunnyRoundedIcon from "@mui/icons-material/WbSunnyRounded";
+
 
 function SideBar() {
   const theme = useTheme();
@@ -71,7 +73,7 @@ function SideBar() {
               </MenuItem>
               <MenuItem
                 style={{ color: colors.gray[100] }}
-                icon={<MapIcon />}
+                icon={<WbSunnyRoundedIcon />}
                 component={<Link to="/mapas" />}>
                 Mapa Solar
               </MenuItem>

@@ -2,56 +2,52 @@
 import { useTheme } from "@mui/material/styles";
 import {
   Box, Typography, Paper, Stack, Divider, Switch, Button,
-  Accordion, AccordionSummary, AccordionDetails
 } from "@mui/material";
-import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import { tokens } from "../data/theme";
 
-function LegendMini() {
-  const BINS = [
-    { min:2,  max:4,  color:"#d1d5db" },
-    { min:4,  max:6,  color:"#9ca3af" },
-    { min:6,  max:8,  color:"#6b7280" },
-    { min:8,  max:10, color:"#4b5563" },
-    { min:10, max:17, color:"#111827" },
-  ];
+// Small helper to render "Label — Value"
+function InfoRow({ label, value }) {
   return (
-    <Box sx={{ mt: 0.5, p: 1, borderRadius: 1, bgcolor: "background.paper", border: "1px solid", borderColor: "divider" }}>
-      <Typography variant="caption" fontWeight={700} sx={{ display: "block", mb: 0.5 }}>
-        Horas de sombra
+    <Stack
+      direction="row"
+      alignItems="center"
+      justifyContent="space-between"
+      sx={{ py: 0.25 }}
+    >
+      <Typography variant="body2">{label}</Typography>
+      <Typography variant="body2" color="text.secondary">
+        {value ?? "–"}
       </Typography>
-      {BINS.map((b, i) => (
-        <Stack key={i} direction="row" spacing={1} alignItems="center" sx={{ mb: 0.25 }}>
-          <span style={{ width: 12, height: 12, borderRadius: 999, background: b.color, display: "inline-block", border: "1px solid #999" }} />
-          <Typography variant="caption">{b.min}–{b.max} h</Typography>
-        </Stack>
-      ))}
-    </Box>
+    </Stack>
   );
 }
 
+// Let title be ANY React node (so we can insert a Switch on the right)
 function Section({ title, children, headerBg }) {
-  // Outer container copies your grey background card with rounded corners.
   return (
     <Box sx={{ backgroundColor: "#f3f4f6", borderRadius: 2, p: 1.5 }}>
-      <Typography
-        variant="h6"
-        color="#fff"
-        fontWeight={600}
+      <Box
         sx={{
           background: headerBg,
           borderRadius: "6px",
           px: "0.6rem",
           py: "0.35rem",
           mb: 1.2,
-          lineHeight: 1.2,
-          fontSize: 16,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          color: "#fff",
         }}
       >
-        {title}
-      </Typography>
+        {typeof title === "string" ? (
+          <Typography variant="h6" fontWeight={600} sx={{ lineHeight: 1.2, fontSize: 16 }}>
+            {title}
+          </Typography>
+        ) : (
+          title
+        )}
+      </Box>
 
-      {/* Inner card (white) to match the search box body */}
       <Paper
         elevation={0}
         sx={{
@@ -69,174 +65,204 @@ function Section({ title, children, headerBg }) {
   );
 }
 
-const accordionSx = {
-  "&.MuiAccordion-root": {
-    backgroundColor: "#ffffff",
-    borderRadius: 1.5,
-    border: "1px solid",
-    borderColor: "divider",
-    boxShadow: "0 1px 2px rgba(0,0,0,0.06)",
-    overflow: "hidden",
-  },
-  "& .MuiAccordionSummary-root": {
-    minHeight: 44,
-    px: 1.25,
-  },
-  "& .MuiAccordionDetails-root": {
-    p: 1.25,
-    pt: 0.5,
-  },
-};
-
-
 export default function RightLayerPanel({
   irradianceOn, celsOn, certificateOn, zoom,
   celsHits = [], celsHitsLoading = false, celsHitsError = "",
   onToggleIrradiance, onToggleCELS, onToggleCertificate, onJumpToIrradianceZoom,
   buildingRef = null, buildingMetrics = null, buildingMetricsLoading = false, buildingMetricsError = ""
 }) {
-  const fmt = (v, d=1) => (v == null ? "–" : Number(v).toFixed(d));
   const theme = useTheme();
   const colors = tokens(theme.palette.mode);
   const inIrradianceZoom = zoom >= 17 && zoom <= 18;
 
+  // ===== Helpers de formato y cálculo =====
+  const isNum = (v) => Number.isFinite(Number(v));
+  const fmt = (v, d = 1) => (isNum(v) ? Number(v).toFixed(d) : "–");
+  const pct = (v, d = 1) => (isNum(v) ? `${Number(v).toFixed(d)}%` : "–");
+  const safeDiv = (a, b) => (isNum(a) && isNum(b) && Number(b) !== 0 ? Number(a) / Number(b) : null);
+
+  const m = buildingMetrics || {};
+
+  // Derivados
+  const pctSuperficieUtil = safeDiv(m.superficie_util_m2, m.area_m2) != null
+    ? safeDiv(m.superficie_util_m2, m.area_m2) * 100
+    : null;
+
+  const prodEspecifica = safeDiv(m.energy_total_kWh, m.pot_kWp); // kWh/kWp·año
+  const densidadPot = safeDiv(m.pot_kWp, m.superficie_util_m2);   // kWp/m²
+
   return (
     <Stack spacing={2}>
-      {/* IRRADIANCE */}
-      <Section title="Irradiancia" headerBg={colors.blueAccent[400]}>
-        <Accordion disableGutters square sx={accordionSx}>
-          <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-            <Typography fontWeight={600}>Mapa de irradiancia</Typography>
-          </AccordionSummary>
-          <AccordionDetails>
-            <Stack spacing={1.25}>
-              <Stack direction="row" alignItems="center" justifyContent="space-between">
-                <Typography>Mostrar capa</Typography>
-                <Switch checked={irradianceOn} onChange={onToggleIrradiance} />
-              </Stack>
-              <Divider />
-              {inIrradianceZoom ? (
-                <Typography variant="caption">Visible en niveles de zoom <b>17–18</b>.</Typography>
-              ) : (
-                <Stack direction="row" spacing={1} alignItems="center">
-                  <Typography variant="caption">Necesitas zoom 17–18 para ver la capa.</Typography>
-                  <Button size="small" variant="contained" onClick={onJumpToIrradianceZoom}>
-                    Ir a zoom óptimo
-                  </Button>
-                </Stack>
-              )}
-              {/*<LegendMini /> */}
-            </Stack>
-          </AccordionDetails>
-        </Accordion>
-        <Accordion disableGutters square sx={accordionSx} defaultExpanded>
-          <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-            <Typography fontWeight={600}>Información del edificio</Typography>
-          </AccordionSummary>
-          <AccordionDetails>
-            {!buildingRef && !buildingMetricsLoading && (
-              <Typography variant="caption" color="text.secondary">
-                Selecciona un edificio en el mapa o con el buscador.
+      {/* ===== IRRADIANCIA (no accordion) ===== */}
+      <Section
+        headerBg={colors.blueAccent[400]}
+        title={
+          <Box sx={{ display: "flex", alignItems: "center", width: "100%" }}>
+            <Typography variant="h6" fontWeight={600} sx={{ fontSize: 16, lineHeight: 1.2 }}>
+              Mapa de irradiancia
+            </Typography>
+            <Box sx={{ ml: "auto", display: "flex", alignItems: "center", gap: 1 }}>
+              <Typography variant="body2" sx={{ color: "rgba(255,255,255,.9)" }}>
+                Mostrar capa
               </Typography>
-            )}
+              <Switch checked={irradianceOn} onChange={onToggleIrradiance} />
+            </Box>
+          </Box>
+        }
+      >
+        {/* Aviso de zoom */}
+        {!inIrradianceZoom && (
+          <Box sx={{ mb: 1 }}>
+            <Typography variant="caption">
+              Necesitas zoom <b>17–18</b> para ver la capa.
+            </Typography>{" "}
+            <Button size="small" variant="contained" onClick={onJumpToIrradianceZoom} sx={{ ml: 1 }}>
+              Ir a zoom óptimo
+            </Button>
+          </Box>
+        )}
 
-            {buildingMetricsLoading && (
-              <Typography variant="caption">Cargando información…</Typography>
-            )}
+        {/* Panel de indicadores */}
+        <Box
+          sx={{
+            p: 1,
+            borderRadius: 1,
+            backgroundColor: "#fff",
+            border: "1px solid",
+            borderColor: "divider",
+          }}
+        >
+          {buildingMetricsLoading && (
+            <Typography variant="caption">Cargando información…</Typography>
+          )}
 
-            {buildingMetricsError && (
-              <Typography variant="caption" color="error">{buildingMetricsError}</Typography>
-            )}
+          {buildingMetricsError && (
+            <Typography variant="caption" color="error">
+              {buildingMetricsError}
+            </Typography>
+          )}
 
-            {buildingRef && buildingMetrics && !buildingMetricsLoading && !buildingMetricsError && (
-              <Stack spacing={0.75}>
-                <Typography variant="body2" fontWeight={700}>Ref. catastral: {buildingRef}</Typography>
-                <Divider />
-                <Typography variant="caption" color="text.secondary">Irradiancia media (kWh/m²·año)</Typography>
-                <Typography variant="body2">{fmt(buildingMetrics.irr_mean_kWhm2_y, 1)}</Typography>
+          {!buildingMetricsLoading && !buildingMetricsError && (
+            <>
+              <Typography variant="subtitle2" sx={{ mb: 0.5, fontWeight: 700 }}>
+                Datos Energéticos
+              </Typography>
 
-                <Typography variant="caption" color="text.secondary">Área de cubierta (m²)</Typography>
-                <Typography variant="body2">{fmt(buildingMetrics.area_m2, 1)}</Typography>
+              {buildingRef && <InfoRow label="Ref. catastral" value={buildingRef} />}
 
-                <Typography variant="caption" color="text.secondary">Superficie útil (m²)</Typography>
-                <Typography variant="body2">{fmt(buildingMetrics.superficie_util_m2, 1)}</Typography>
+              {/* ======= ORDEN EXACTO DEL EXCEL ======= */}
+              <InfoRow
+                label="Radiación solar anual (kWh/m²)"
+                value={fmt(m.irr_mean_kWhm2_y ?? m.irr_average, 1)}
+              />
+              <InfoRow label="Horas de sol directo (h/día)" value="–" />
+              <InfoRow label="Edificios dentro del buffer de una CEL" value="–" />
+              <InfoRow label="Número de usuarios del autoconsumo compartido" value="–" />
+              <InfoRow label="Edificios dentro del buffer de un autoconsumo compartido" value="–" />
+              <InfoRow label="Calificación energética (A–G)" value="–" />
+              <InfoRow
+                label="Superficie útil para instalación fotovoltaica (m²)"
+                value={fmt(m.superficie_util_m2, 1)}
+              />
+               <InfoRow
+                label="Área total (m²)"
+                value={fmt(m.area_m2, 1)}
+              />
+              <InfoRow
+                label="Porcentaje de superficie útil (%)"
+                value={pct(pctSuperficieUtil, 1)}
+              />
+              <InfoRow
+                label="Potencia fotovoltaica instalable (kWp)"
+                value={fmt(m.pot_kWp, 1)}
+              />
+              <InfoRow
+                label="Energía fotovoltaica anual estimada (kWh/año)"
+                value={fmt(m.energy_total_kWh, 0)}
+              />
+              <InfoRow
+                label="Irradiancia media anual (kWh/m²·año)"
+                value={fmt(m.irr_mean_kWhm2_y ?? m.irr_average, 1)}
+              />
+              <InfoRow
+                label="Factor de capacidad (%)"
+                value={fmt(m.factor_capacidad_pct, 1)}
+              />
+              <InfoRow
+                label="Producción específica (kWh/kWp·año)"
+                value={fmt(prodEspecifica, 1)}
+              />
+              <InfoRow
+                label="Densidad de potencia (kWp/m²)"
+                value={fmt(densidadPot, 3)}
+              />
+              <InfoRow label="Reducción potencial de emisiones (tCO₂/año)" value="–" />
+              <InfoRow label="Ahorro económico estimado (€ / año)" value="–" />
+              {/* ======================================= */}
 
-                <Typography variant="caption" color="text.secondary">Potencia FV estimada (kWp)</Typography>
-                <Typography variant="body2">{fmt(buildingMetrics.pot_kWp, 1)}</Typography>
+              {/* Extras informativos (opcionales) */}
+              <Divider sx={{ my: 1 }} />
+              <InfoRow label="Área de cubierta (m²)" value={fmt(m.area_m2, 1)} />
+            </>
+          )}
 
-                <Typography variant="caption" color="text.secondary">Energía anual estimada (kWh)</Typography>
-                <Typography variant="body2">{fmt(buildingMetrics.energy_total_kWh, 0)}</Typography>
-
-                <Typography variant="caption" color="text.secondary">Factor de capacidad (%)</Typography>
-                <Typography variant="body2">{fmt(buildingMetrics.factor_capacidad_pct, 1)}</Typography>
-              </Stack>
-            )}
-          </AccordionDetails>
-        </Accordion>
+          {!buildingRef && !buildingMetricsLoading && !buildingMetricsError && (
+            <Typography variant="caption" color="text.secondary">
+              Selecciona un edificio en el mapa o con el buscador.
+            </Typography>
+          )}
+        </Box>
       </Section>
 
-      
-      {/* CERTIFICATE */}
+      {/* ===== Certificados (placeholder) ===== */}
       <Section title="Certificados Energéticos" headerBg={colors.blueAccent[400]}>
-        <Accordion disableGutters square sx={accordionSx}>
-          <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-            <Typography fontWeight={600}>Información del certificado</Typography>
-          </AccordionSummary>
-          
-          </Accordion>
+        <Typography variant="caption" color="text.secondary">
+          Información del certificado
+        </Typography>
       </Section>
 
-
-      {/* CERTIFICATE */}
+      {/* ===== CELS ===== */}
       <Section title="CELS y Autoconsumo" headerBg={colors.blueAccent[400]}>
-        <Accordion disableGutters square sx={accordionSx}>
-          <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-            <Typography fontWeight={600}>Información de los CELS y autoconsumos</Typography>
-          </AccordionSummary>
-          <AccordionDetails>
-            <Stack spacing={1.25}>
-              <Stack direction="row" alignItems="center" justifyContent="space-between">
-                <Typography>Mostrar capa</Typography>
-                <Switch checked={celsOn} onChange={onToggleCELS} />
+        <Stack spacing={1.25}>
+          <Stack direction="row" alignItems="center" justifyContent="space-between">
+            <Typography>Mostrar capa</Typography>
+            <Switch checked={celsOn} onChange={onToggleCELS} />
+          </Stack>
+
+          <Typography variant="caption" color="text.secondary">
+            Visualiza el área potencial de una Comunidad Energética alrededor de cada CELS.
+          </Typography>
+
+          <Divider sx={{ my: 0.5 }} />
+          <Typography fontWeight={600} variant="body2">
+            CELS que cubren el edificio seleccionado
+          </Typography>
+
+          {celsHitsLoading && <Typography variant="caption">Buscando CELS…</Typography>}
+
+          {celsHitsError && (
+            <Typography variant="caption" color="error">{celsHitsError}</Typography>
+          )}
+
+          {!celsHitsLoading && !celsHitsError && (
+            celsHits.length ? (
+              <Stack spacing={0.5}>
+                {celsHits.map(c => (
+                  <Box key={c.id} sx={{ p: 0.75, borderRadius: 1, border: "1px solid", borderColor: "divider", bgcolor: "background.paper" }}>
+                    <Typography variant="body2" fontWeight={600}>{c.nombre || "(sin nombre)"}</Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      Ref: {c.reference} · auto_CEL: {String(c.auto_CEL)} · distancia: {Math.round(c.distance_m)} m
+                    </Typography>
+                  </Box>
+                ))}
               </Stack>
-
+            ) : (
               <Typography variant="caption" color="text.secondary">
-                Visualiza el área potencial de una Comunidad Energética alrededor de cada CELS.
+                Ningún CELS cubre este edificio.
               </Typography>
-
-              <Divider sx={{ my: 0.5 }} />
-              <Typography fontWeight={600} variant="body2">
-                CELS que cubren el edificio seleccionado
-              </Typography>
-
-              {celsHitsLoading && (
-                <Typography variant="caption">Buscando CELS…</Typography>
-              )}
-
-              {celsHitsError && (
-                <Typography variant="caption" color="error">{celsHitsError}</Typography>
-              )}
-
-              {!celsHitsLoading && !celsHitsError && (
-                celsHits.length ? (
-                  <Stack spacing={0.5}>
-                    {celsHits.map(c => (
-                      <Box key={c.id} sx={{ p: 0.75, borderRadius: 1, border: "1px solid", borderColor: "divider", bgcolor: "background.paper" }}>
-                        <Typography variant="body2" fontWeight={600}>{c.nombre || "(sin nombre)"}</Typography>
-                        <Typography variant="caption" color="text.secondary">
-                          Ref: {c.reference} · auto_CEL: {String(c.auto_CEL)} · distancia: {Math.round(c.distance_m)} m
-                        </Typography>
-                      </Box>
-                    ))}
-                  </Stack>
-                ) : (
-                  <Typography variant="caption" color="text.secondary">Ningún CELS cubre este edificio.</Typography>
-                )
-              )}
-
-            </Stack>
-          </AccordionDetails>
-        </Accordion>
+            )
+          )}
+        </Stack>
       </Section>
     </Stack>
   );

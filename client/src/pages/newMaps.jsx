@@ -1472,11 +1472,6 @@ export default function NewMap() {
                 null
                 )}
 
-               
-                {irradianceVisible
-                  ? <IrrZonalDrawControl onStats={(s) => console.log("Zonal IRR:", s)} />
-                  : <ZonalDrawControl onStats={(s) => console.log("Zonal sombras:", s)} />
-                }
                 {geoLimites && (
                   <LayerGeoJSON
                     fc={geoLimites}
