@@ -9,6 +9,13 @@ import SearchBoxEMSV from "../components/SearchBoxEMSV";
 
 
 
+const isFiniteNum = (v) => Number.isFinite(Number(v));
+
+const fmtPct = (v, d = 0) =>
+  isFiniteNum(v) ? `${Number(v).toFixed(d)}%` : "–";
+
+const fmtInt = (v, suf = "") =>
+  isFiniteNum(v) ? `${Math.round(Number(v))}${suf}` : "–";
 
 
 function InfoRow({ label, value, unit }) {
@@ -20,14 +27,14 @@ function InfoRow({ label, value, unit }) {
       sx={{ py: 0.4 }}
     >
       <Typography
-        sx={{ fontSize: 12, fontWeight: 400, lineHeight: 0.4 }}
+        sx={{ fontSize: 14, fontWeight: 400, lineHeight: 0.7 }}
       >
         {label}
       </Typography>
 
-      <Box sx={{ display: "flex", alignItems: "baseline", gap: 0.5 }}>
+      <Box sx={{ display: "flex", alignItems: "baseline", gap: 0.6 }}>
         <Typography
-          sx={{ fontSize: 14, fontWeight: 700, lineHeight: 0.7, color: "text.primary" }}
+          sx={{ fontSize: 14, fontWeight: 700, lineHeight: 0.9, color: "text.primary" }}
         >
           {value ?? "–"}
         </Typography>
@@ -43,7 +50,7 @@ function InfoRow({ label, value, unit }) {
   );
 }
 
-
+/*
 // Let title be ANY React node (so we can insert a Switch on the right)
 function Section({ title, children, headerBg }) {
   return (
@@ -86,6 +93,56 @@ function Section({ title, children, headerBg }) {
     </Box>
   );
 }
+*/
+
+
+function Section({ title, children, headerBg, noPaper = false }) {
+  return (
+    <Box sx={{ backgroundColor: "#f3f4f6", borderRadius: 2, p: 1.5 }}>
+      <Box
+        sx={{
+            background: headerBg,
+            borderRadius: "6px",
+            px: "0.6rem",
+            py: "0.15rem",
+            mb: 0.5,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            color: "#fff",
+          }}
+      >
+        {typeof title === "string" ? (
+          <Typography variant="h6" fontWeight={600} sx={{ lineHeight: 1.2, fontSize: 16 }}>
+            {title}
+          </Typography>
+        ) : (
+          title
+        )}
+      </Box>
+
+      {noPaper ? (
+        <>{children}</>
+      ) : (
+        <Paper
+          elevation={0}
+          sx={{
+            p: 1,
+            borderRadius: 2,
+            backgroundColor: "#f8fafc",
+            border: "1px solid",
+            borderColor: "divider",
+            boxShadow: "0 1px 3px rgba(0,0,0,0.08)",
+          }}
+        >
+          {children}
+        </Paper>
+      )}
+    </Box>
+  );
+}
+
+
 
 export default function RightLayerPanel({
   irradianceOn, celsOn, certificateOn, zoom,
@@ -128,11 +185,12 @@ export default function RightLayerPanel({
   const densidadPot = safeDiv(m.pot_kWp, m.superficie_util_m2);   // kWp/m²
 
   return (
-    <Stack spacing={2} sx={{ fontFamily: theme.typography.fontFamily }}>
+    <Stack spacing={1.5} sx={{ fontFamily: theme.typography.fontFamily }}>
        {/* === Buscador de Direcciones === */}
       <Section
         headerBg={colors.blueAccent[400]}
         title="Buscador de Direcciones"
+        noPaper
       >
         <SearchBoxEMSV
           jsonRef={searchJsonRef}
@@ -201,7 +259,7 @@ export default function RightLayerPanel({
               {/*<InfoRow label="Edificios dentro del buffer de una CEL" value="–" />*/}
               {/*<InfoRow label="Número de usuarios del autoconsumo compartido" value="–" />*/}
               {/*<InfoRow label="Edificios dentro del buffer de un autoconsumo compartido" value="–" />*/}
-              <InfoRow label="Calificación energética (A–G)" value="–" />
+              {/*<InfoRow label="Calificación energética (A–G)" value="–" />*/}
               <InfoRow label="Superficie útil para instalación fotovoltaica (m²)" value={fmt(m.superficie_util_m2, 1)} />
               {/*<InfoRow label="Porcentaje de superficie útil (%)" value={pct(pctSuperficieUtil, 1)} />*/}
               <InfoRow label="Potencia fotovoltaica instalable (kWp)" value={fmt(m.pot_kWp, 1)}  />
@@ -216,20 +274,24 @@ export default function RightLayerPanel({
 
             </>
           )}
-
+          
+          {/*
           {!buildingRef && !buildingMetricsLoading && !buildingMetricsError && (
             <Typography variant="caption" color="text.secondary">
               Selecciona un edificio en el mapa o con el buscador.
             </Typography>
           )}
+          */}
         </Box>
       </Section>
 
       {/* ===== Certificados (placeholder) ===== */}
       <Section title="Certificados Energéticos" headerBg={colors.blueAccent[400]}>
-        <Typography variant="caption" color="text.secondary">
-          Información del certificado
-        </Typography>
+        {!buildingMetricsLoading && !buildingMetricsError && (
+        <>
+          <InfoRow label="Calificación energética (A–G)" value="–" />
+        </>
+        )}
       </Section>
       {/* ===== CELS ===== */}
       <Section 
@@ -241,38 +303,103 @@ export default function RightLayerPanel({
             </Typography>
             <Box sx={{ ml: "auto", display: "flex", alignItems: "center", gap: 0.5 }}>
               <Typography variant="caption" sx={{ color: "rgba(255,255,255,.9)" }}>
-                {irradianceOn ? "Ocultar capa" : "Mostrar capa"}
+                {celsOn ? "Ocultar capa" : "Mostrar capa"}
               </Typography>
               <Switch size="small" checked={celsOn} onChange={onToggleCELS} />
             </Box>
           </Box>
         }
      >    
-          <Typography fontWeight={600} variant="body2">
-            CELS que cubren el edificio seleccionado
-          </Typography>
+ 
           {celsHitsLoading && <Typography variant="caption">Buscando CELS…</Typography>}
           {celsHitsError && (
             <Typography variant="caption" color="error">{celsHitsError}</Typography>
           )}
+          {/* ...dentro de la sección CELS... */}
           {!celsHitsLoading && !celsHitsError && (
             celsHits.length ? (
-              <Stack spacing={0.5}>
-                {celsHits.map(c => (
-                  <Box key={c.id} sx={{ p: 0.75, borderRadius: 1, border: "1px solid", borderColor: "divider", bgcolor: "background.paper" }}>
-                    <Typography variant="body2" fontWeight={600}>{c.nombre || "(sin nombre)"}</Typography>
-                    <Typography variant="caption" color="text.secondary">
-                      Ref: {c.reference} · auto_CEL: {String(c.auto_CEL)} · distancia: {Math.round(c.distance_m)} m
-                    </Typography>
-                  </Box>
-                ))}
+              <Stack spacing={0.75}>
+                {celsHits.map((c) => {
+                  const props = c?.properties ?? c; // por si viene anidado
+                  const num = (v) => {
+                    const n = Number(v);
+                    return Number.isFinite(n) ? n : null;
+                  };
+                  // lee con tolerancia a alias
+                  let occ = num(
+                    props.por_ocupacion ??
+                    props.por_ocupacion_pct ??
+                    props.por_ocup ??
+                    props.occupancy_pct ??
+                    props.occupancy
+                  );
+
+                  // si llega como ratio (0–1), pásalo a %
+                  if (occ != null && occ > 0 && occ <= 1) occ = occ * 100;
+                                    const occRaw =
+                    c.por_ocupacion ??
+                    c.por_ocupacion_pct ??
+                    c.por_ocup ??
+                    c.occupancy_pct ??
+                    c.occupancy ??
+                    null;
+                 
+                  const dist = num(c.distance_m);
+
+                  const street = c.street_norm || c.street || c.calle || "";
+                  const number = c.number_norm ?? c.numero ?? "";
+
+                  const tipo = c.auto_CEL === 1 ? "CEL" : "Autoconsumo Compartido";
+                    if (process.env.NODE_ENV !== "production") {
+                       console.log("CEL hit debug:", c);
+                  }
+                  return (
+                    <Box
+                      key={c.id}
+                      sx={{
+                        p: 1,
+                        borderRadius: 1,
+                        border: "1px solid",
+                        borderColor: "divider",
+                        bgcolor: "background.paper",
+                      }}
+                    >
+                      
+                      <Typography variant="h6" sx={{ fontWeight: 700, fontSize: 15, lineHeight: 1.1 }}>
+                        {c.nombre || "(sin nombre)"}
+                      </Typography>
+
+                      {/* 1ª fila: ref catastral + calle y número */}
+                      <Typography variant="body1" color="text.secondary" sx={{ display: "block", mt: 0.75 ,fontSize: "0.9rem"}}>
+                        Referencia catastral y calle: <strong>{c.reference || "–"}</strong>
+                        {(street || number) && (
+                          <>
+                            {"  -  "} <strong>{street}{number ? ` ${number}` : ""}</strong>
+                          </>
+                        )}
+                      </Typography>
+                      {/* 2ª fila: resto de datos */}
+                      <Typography variant="body1" color="text.secondary" sx={{ display: "block", mt: 0.25,fontSize: "0.9rem" }}>
+                        Tipo: <strong>{tipo}</strong>
+                        {"  -  "}
+               
+                        Ocupación: <strong>{occ != null ? `${occ.toFixed(0)}%` : "–"}</strong>
+
+                        {"  -  "}
+                        Distancia: <strong>{dist != null ? `${Math.round(dist)} m` : "–"}</strong>
+                      </Typography>
+                    </Box>
+                  );
+                })}
               </Stack>
             ) : (
               <Typography variant="caption" color="text.secondary">
-                Ningún CELS cubre este edificio.
+                Ningún CELS o autoconsumo compartido cubre este edificio.
               </Typography>
             )
           )}
+
+
       </Section>
     </Stack>
   );

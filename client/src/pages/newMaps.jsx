@@ -341,7 +341,7 @@ function IrradianceLayer({ bbox, minZoom = 17, maxZoom = 19 }) {
     const z = map?.getZoom?.() ?? 0;
     return z >= minZoom && z <= maxZoom;
   };
-  const pointRadiusForZoom = (z) => Math.max(1.6, Math.min(0.8 + (z - 15) * 1.1, 5));
+  const pointRadiusForZoom = (z) => Math.max(1.2, Math.min(0.6 + (z - 15) * 0.9, 3.5));
   const padBBox = ([w, s, e, n], r = 0.12) => {
     const dx = (e - w) * r, dy = (n - s) * r;
     return [w - dx, s - dy, e + dx, n + dy];
@@ -564,7 +564,7 @@ function makeColorForBins(bins) {
 }
 
 
-function BuildingIrradianceLayer({ bbox, onLegendChange }) {
+function BuildingIrradianceLayer({ bbox, onLegendChange,onBuildingClick  }) {
   const map = useMap();
   const layerRef = useRef(null);
   const abortRef = useRef(null);
@@ -576,8 +576,6 @@ function BuildingIrradianceLayer({ bbox, onLegendChange }) {
     if (!map.getPane(paneName)) {
       const p = map.createPane(paneName);
       p.style.zIndex = 440;           
-      p.style.pointerEvents = "none"; 
-      p.style.mixBlendMode = "multiply";
     }
   }, [map]);
 
@@ -620,6 +618,7 @@ function BuildingIrradianceLayer({ bbox, onLegendChange }) {
         // build layer
         const lyr = L.geoJSON(feats, {
           pane: paneName,
+          interactive: true,
           style: (f) => {
             const v = f.properties?.irr_building;
             const c = colorFor(v);
@@ -630,7 +629,15 @@ function BuildingIrradianceLayer({ bbox, onLegendChange }) {
               fillOpacity: 0.8
             };
           },
-
+          onEachFeature: (feature, layer) => {
+            // habilita click directamente sobre el polígono pintado
+            layer.on("click", () => {
+              // si tienes la feature tal cual del buildings, ya lleva `properties.reference`
+              if (typeof onBuildingClick === "function") {
+                onBuildingClick(feature);
+              }
+            });
+           }
         });
 
         // swap layer
@@ -645,7 +652,7 @@ function BuildingIrradianceLayer({ bbox, onLegendChange }) {
     })();
 
     return () => { /* nothing */ };
-  }, [map, bbox, onLegendChange]);
+  }, [map, bbox, onLegendChange, onBuildingClick]);
 
   useEffect(() => {
     return () => {
@@ -702,33 +709,27 @@ function ZoomAwareIrradiance({ bbox }) {
 }
 */
 
-
-
-function ZoomAwareIrradiance({ bbox, pointsOn=true }) {
-  const zoom = useMapZoom(); //  stateful, re-renders on zoom
+function ZoomAwareIrradiance({ bbox, pointsOn=true, onBuildingClick }) {
+  const zoom = useMapZoom();
   const [legendBins, setLegendBins] = useState(null);
-
-  // show legend only when layer is on
-  const showBldgLegend = zoom >= 17 && zoom <= 18;
-  const showPointLegend = zoom >= 19;
 
   return (
     <>
       {zoom >= 19 && bbox && (
         <>
-          {/* points at z=19 */}
           <IrradianceLayer bbox={bbox} minZoom={19} maxZoom={19} />
-          {/* static legend (your original bins) */}
           <LegendIrr minZoom={19} maxZoom={19} />
         </>
       )}
 
       {zoom >= 17 && zoom <= 18 && bbox && (
         <>
-          {/* buildings colored by aggregated irradiance */}
-          <BuildingIrradianceLayer bbox={bbox} onLegendChange={setLegendBins} />
-          {/* dynamic legend based on visible buildings */}
-          <LegendContinuous bins={legendBins} visible={showBldgLegend} />
+          <BuildingIrradianceLayer
+            bbox={bbox}
+            onLegendChange={setLegendBins}
+            onBuildingClick={onBuildingClick}   // <-- añade esto
+          />
+          <LegendContinuous bins={legendBins} visible />
         </>
       )}
     </>
@@ -799,8 +800,8 @@ function ShadowsLayer({ bbox, minZoom = 16, maxZoom = 19 }) {
   const paneName = "shadows-pane";
   const rendererRef = useRef(null);
 
-  const CHUNK_SIZE = 2000;
-  const CHUNK_DELAY = 16;
+  const CHUNK_SIZE = 3500;
+  const CHUNK_DELAY = 8;
   const PANE_FADE_MS = 220;
 
   useEffect(() => {
@@ -825,19 +826,21 @@ function ShadowsLayer({ bbox, minZoom = 16, maxZoom = 19 }) {
   };
   const pointRadiusForZoom = (z) => Math.max(1.6, Math.min(0.8 + (z - 15) * 1.1, 5));
 
-  const padBBox = ([w, s, e, n], r = 0.12) => {
-    const dx = (e - w) * r, dy = (n - s) * r;
-    return [w - dx, s - dy, e + dx, n + dy];
+
+  const padBBox = ([w,s,e,n], r = 0.05) => { 
+   const dx = (e-w)*r, dy=(n-s)*r;
+   return [w-dx, s-dy, e+dx, n+dy];
   };
+  
   const shouldRefetch = (newB, oldB) => {
     if (!oldB) return true;
     const [w1, s1, e1, n1] = newB; const [w0, s0, e0, n0] = oldB;
     const width = Math.max(1e-9, e0 - w0), height = Math.max(1e-9, n0 - s0);
     return (
-      Math.abs(w1 - w0) > width * 0.12 ||
-      Math.abs(e1 - e0) > width * 0.12 ||
-      Math.abs(s1 - s0) > height * 0.12 ||
-      Math.abs(n1 - n0) > height * 0.12
+      Math.abs(w1 - w0) > width * 0.18 ||
+      Math.abs(e1 - e0) > width * 0.18 ||
+      Math.abs(s1 - s0) > height * 0.18 ||
+      Math.abs(n1 - n0) > height * 0.18
     );
   };
 
@@ -1795,7 +1798,7 @@ export default function NewMap() {
                   </>
                 )}
                 */}
-                {irradianceVisible && <ZoomAwareIrradiance bbox={bbox} />}
+                {irradianceVisible && <ZoomAwareIrradiance bbox={bbox} onBuildingClick={handleBuildingClick} />}
 
 
 

@@ -482,6 +482,7 @@ def lookup_address(
 # CELS
 # ============================================================
 
+
 @app.get("/cels/features")
 def cels_features(
     bbox: str | None = Query(None, description="minx,miny,maxx,maxy (WGS84)"),
@@ -489,12 +490,19 @@ def cels_features(
     offset: int = 0,
     con: duckdb.DuckDBPyConnection = Depends(get_conn),
 ):
+    if not bbox:
+        raise HTTPException(400, "bbox es obligatorio en /cels/features")
+
+    limit = max(100, min(int(limit), 20000))
+    offset = max(0, int(offset))
+
     where, params = parse_bbox(bbox)
     rows = q(con, f"""
         WITH j AS (
           SELECT 
             ST_PointOnSurface(b.geom) AS pt,
-            c.id, c.nombre, c.street_norm, c.number_norm, c.reference, c.auto_CEL
+            c.id, c.nombre, c.street_norm, c.number_norm, c.reference, c.auto_CEL,
+            CAST(c.por_ocupacion AS DOUBLE) AS por_ocupacion
           FROM buildings b
           JOIN autoconsumos_CELS c
             ON LEFT(UPPER(b.reference), 14) = LEFT(UPPER(c.reference), 14)
@@ -502,8 +510,13 @@ def cels_features(
           LIMIT ? OFFSET ?
         )
         SELECT ST_AsGeoJSON(pt), to_json(struct_pack(
-            id := id, nombre := nombre, street_norm := street_norm,
-            number_norm := number_norm, reference := reference, auto_CEL := auto_CEL
+            id := id,
+            nombre := nombre,
+            street_norm := street_norm,
+            number_norm := number_norm,
+            reference := reference,
+            auto_CEL := auto_CEL,
+            por_ocupacion := por_ocupacion
         ))
         FROM j;
     """, params + [limit, offset])
@@ -520,6 +533,11 @@ def cels_features(
         ],
     }
 
+
+
+
+
+
 @app.post("/cels/within")
 def cels_within_buffer(
     req: CelsWithinReq,
@@ -532,21 +550,26 @@ def cels_within_buffer(
     rows = q(con, """
         WITH input_geom AS (SELECT ST_GeomFromGeoJSON(?::VARCHAR) AS geom),
         cels_points AS (
-          SELECT c.id, c.nombre, c.street_norm, c.number_norm, c.reference AS cels_ref, c.auto_CEL,
-                 ST_Centroid(b.geom) AS point_geom
-          FROM autoconsumos_CELS c
-          JOIN buildings b ON LEFT(UPPER(b.reference),14)=LEFT(UPPER(c.reference),14)
+        SELECT c.id, c.nombre, c.street_norm, c.number_norm, c.reference AS cels_ref, c.auto_CEL,
+                c.por_ocupacion,
+                ST_Centroid(b.geom) AS point_geom
+        FROM autoconsumos_CELS c
+        JOIN buildings b ON LEFT(UPPER(b.reference),14)=LEFT(UPPER(c.reference),14)
         ),
         input_point AS (SELECT ST_Centroid(geom) AS center FROM input_geom)
         SELECT cp.id, cp.nombre, cp.street_norm, cp.number_norm, cp.cels_ref, cp.auto_CEL,
-               ST_Distance(cp.point_geom, ip.center) AS distance_deg
+            cp.por_ocupacion,
+            ST_Distance(cp.point_geom, ip.center) AS distance_deg
         FROM cels_points cp, input_point ip
         WHERE ST_Distance(cp.point_geom, ip.center) <= ?
         ORDER BY distance_deg;
     """, [geojson_str, radius_deg])
+
     cels = []
     for row in rows:
-        dist_m = (float(row[6]) * 85000.0) if row[6] is not None else None
+        # indices: 0..6 datos, 7 distancia
+        dist_m = (float(row[7]) * 85000.0) if row[7] is not None else None
+        por_oc = float(row[6]) if row[6] is not None else None
         cels.append({
             "id": row[0],
             "nombre": row[1] or "(sin nombre)",
@@ -554,9 +577,11 @@ def cels_within_buffer(
             "number_norm": row[3],
             "reference": row[4],
             "auto_CEL": int(row[5]) if row[5] is not None else None,
+            "por_ocupacion": por_oc,             # ⬅️ devolverlo
             "distance_m": dist_m,
         })
     return {"count": len(cels), "cels": cels, "radius_m": radius_m}
+
 
 @app.get("/debug/cels/count")
 def debug_cels_count(con: duckdb.DuckDBPyConnection = Depends(get_conn)):
