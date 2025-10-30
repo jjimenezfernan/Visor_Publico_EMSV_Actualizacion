@@ -324,29 +324,52 @@ def irradiance_zonal(req: ZonalReq, con: duckdb.DuckDBPyConnection = Depends(get
 # ============================================================
 # BUILDINGS + METRICS
 # ============================================================
-
 @app.get("/buildings/features")
-def buildings_features(
+def buildings_features_optimized(
     bbox: str | None = Query(None),
+    zoom: int = Query(15, ge=10, le=19),
     limit: int = 50000,
     offset: int = 0,
     con: duckdb.DuckDBPyConnection = Depends(get_conn),
 ):
+    """
+    Optimized buildings endpoint that:
+    - Simplifies geometry based on zoom level
+    - Uses spatial index
+    - Returns lighter payloads at lower zooms
+    """
     where, params = parse_bbox(bbox)
+    
+    # Simplify geometry at lower zoom levels
+    simplify_tolerance = 0.0001 if zoom >= 17 else 0.0005 if zoom >= 16 else 0.001
+    
+    # Select fewer properties at lower zooms
+    if zoom < 16:
+        property_select = "reference"
+    else:
+        property_select = "* EXCLUDE (geom)"
+    
     rows = q(con, f"""
         WITH f AS (
-          SELECT geom, * EXCLUDE (geom)
+          SELECT 
+            ST_Simplify(geom, {simplify_tolerance}) AS geom,
+            {property_select}
           FROM buildings
           {where}
           LIMIT ? OFFSET ?
         )
         SELECT ST_AsGeoJSON(geom), to_json(f) FROM f;
     """, params + [limit, offset])
+    
     feats = [
-        {"type": "Feature", "geometry": json.loads(g), "properties": json.loads(p) if isinstance(p, str) else {}}
+        {
+            "type": "Feature",
+            "geometry": json.loads(g),
+            "properties": json.loads(p) if isinstance(p, str) else {}
+        }
         for g, p in rows
     ]
-    return fc(feats)
+    return {"type": "FeatureCollection", "features": feats}
 
 @app.get("/buildings/irradiance")
 def buildings_irradiance(
@@ -646,3 +669,12 @@ def cadastre_by_refcat(
             "properties": json.loads(props) if isinstance(props, str) else (props or {})
         }
     }
+
+
+
+
+
+
+
+
+
