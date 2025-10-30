@@ -12,10 +12,23 @@ function InfoRow({ label, value }) {
       direction="row"
       alignItems="center"
       justifyContent="space-between"
-      sx={{ py: 0.25 }}
+      sx={{ py: 0.4 }}
     >
-      <Typography variant="body2">{label}</Typography>
-      <Typography variant="body2" color="text.secondary">
+      {/* Texto del label más grande y en negrita */}
+      <Typography
+        variant="body1"
+        fontWeight={600}
+        sx={{ fontSize: 15 }}
+      >
+        {label}
+      </Typography>
+
+      {/* Valor también más grande y en negrita */}
+      <Typography
+        variant="body1"
+        fontWeight={700}
+        sx={{ fontSize: 15, color: "text.primary" }}
+      >
         {value ?? "–"}
       </Typography>
     </Stack>
@@ -69,7 +82,8 @@ export default function RightLayerPanel({
   irradianceOn, celsOn, certificateOn, zoom,
   celsHits = [], celsHitsLoading = false, celsHitsError = "",
   onToggleIrradiance, onToggleCELS, onToggleCertificate, onJumpToIrradianceZoom,
-  buildingRef = null, buildingMetrics = null, buildingMetricsLoading = false, buildingMetricsError = ""
+  buildingRef = null, buildingMetrics = null, buildingMetricsLoading = false, buildingMetricsError = "",
+  shadowStats = null, shadowLoading = false, shadowError = ""
 }) {
   const theme = useTheme();
   const colors = tokens(theme.palette.mode);
@@ -80,8 +94,18 @@ export default function RightLayerPanel({
   const fmt = (v, d = 1) => (isNum(v) ? Number(v).toFixed(d) : "–");
   const pct = (v, d = 1) => (isNum(v) ? `${Number(v).toFixed(d)}%` : "–");
   const safeDiv = (a, b) => (isNum(a) && isNum(b) && Number(b) !== 0 ? Number(a) / Number(b) : null);
+  const safeSub = (a, b) => (isNum(a) && isNum(b) ? Number(a) - Number(b) : null);
 
   const m = buildingMetrics || {};
+
+  const sunDirectAvgFromAPI = shadowStats?.sun_avg;
+  const shadowAvg = shadowStats?.avg;
+  const assumedDayLength = isNum(shadowStats?.dayLength_h) ? shadowStats.dayLength_h : 12;
+  const sunDirectAvgComputed = safeSub(assumedDayLength, shadowStats?.avg);
+
+  // elegimos qué mostrar
+  const sunDirectToShow = isNum(sunDirectAvgFromAPI) ? sunDirectAvgFromAPI : sunDirectAvgComputed;
+
 
   // Derivados
   const pctSuperficieUtil = safeDiv(m.superficie_util_m2, m.area_m2) != null
@@ -99,7 +123,7 @@ export default function RightLayerPanel({
         title={
           <Box sx={{ display: "flex", alignItems: "center", width: "100%" }}>
             <Typography variant="h6" fontWeight={600} sx={{ fontSize: 16, lineHeight: 1.2 }}>
-              Mapa de irradiancia
+              Datos energéticos
             </Typography>
             <Box sx={{ ml: "auto", display: "flex", alignItems: "center", gap: 1 }}>
               <Typography variant="body2" sx={{ color: "rgba(255,255,255,.9)" }}>
@@ -110,7 +134,7 @@ export default function RightLayerPanel({
           </Box>
         }
       >
-        {/* Aviso de zoom */}
+        { /*viso de zoom
         {!inIrradianceZoom && (
           <Box sx={{ mb: 1 }}>
             <Typography variant="caption">
@@ -121,6 +145,7 @@ export default function RightLayerPanel({
             </Button>
           </Box>
         )}
+        A */}
 
         {/* Panel de indicadores */}
         <Box
@@ -144,65 +169,25 @@ export default function RightLayerPanel({
 
           {!buildingMetricsLoading && !buildingMetricsError && (
             <>
-              <Typography variant="subtitle2" sx={{ mb: 0.5, fontWeight: 700 }}>
-                Datos Energéticos
-              </Typography>
-
-              {buildingRef && <InfoRow label="Ref. catastral" value={buildingRef} />}
-
               {/* ======= ORDEN EXACTO DEL EXCEL ======= */}
-              <InfoRow
-                label="Radiación solar anual (kWh/m²)"
-                value={fmt(m.irr_mean_kWhm2_y ?? m.irr_average, 1)}
-              />
-              <InfoRow label="Horas de sol directo (h/día)" value="–" />
-              <InfoRow label="Edificios dentro del buffer de una CEL" value="–" />
-              <InfoRow label="Número de usuarios del autoconsumo compartido" value="–" />
-              <InfoRow label="Edificios dentro del buffer de un autoconsumo compartido" value="–" />
+              <InfoRow label="Radiación solar anual (kWh/m²)" value={fmt(m.irr_mean_kWhm2_y ?? m.irr_average, 1)} />
+              <InfoRow label="Horas de sol directo (h/día)" value={fmt(shadowAvg, 2)}/>
+              {/*<InfoRow label="Edificios dentro del buffer de una CEL" value="–" />*/}
+              {/*<InfoRow label="Número de usuarios del autoconsumo compartido" value="–" />*/}
+              {/*<InfoRow label="Edificios dentro del buffer de un autoconsumo compartido" value="–" />*/}
               <InfoRow label="Calificación energética (A–G)" value="–" />
-              <InfoRow
-                label="Superficie útil para instalación fotovoltaica (m²)"
-                value={fmt(m.superficie_util_m2, 1)}
-              />
-               <InfoRow
-                label="Área total (m²)"
-                value={fmt(m.area_m2, 1)}
-              />
-              <InfoRow
-                label="Porcentaje de superficie útil (%)"
-                value={pct(pctSuperficieUtil, 1)}
-              />
-              <InfoRow
-                label="Potencia fotovoltaica instalable (kWp)"
-                value={fmt(m.pot_kWp, 1)}
-              />
-              <InfoRow
-                label="Energía fotovoltaica anual estimada (kWh/año)"
-                value={fmt(m.energy_total_kWh, 0)}
-              />
-              <InfoRow
-                label="Irradiancia media anual (kWh/m²·año)"
-                value={fmt(m.irr_mean_kWhm2_y ?? m.irr_average, 1)}
-              />
-              <InfoRow
-                label="Factor de capacidad (%)"
-                value={fmt(m.factor_capacidad_pct, 1)}
-              />
-              <InfoRow
-                label="Producción específica (kWh/kWp·año)"
-                value={fmt(prodEspecifica, 1)}
-              />
-              <InfoRow
-                label="Densidad de potencia (kWp/m²)"
-                value={fmt(densidadPot, 3)}
-              />
+              <InfoRow label="Superficie útil para instalación fotovoltaica (m²)" value={fmt(m.superficie_util_m2, 1)} />
+              {/*<InfoRow label="Porcentaje de superficie útil (%)" value={pct(pctSuperficieUtil, 1)} />*/}
+              <InfoRow label="Potencia fotovoltaica instalable (kWp)" value={fmt(m.pot_kWp, 1)}  />
+              <InfoRow label="Energía fotovoltaica anual estimada (kWh/año)" value={fmt(m.energy_total_kWh, 0)} />
+              {/*<InfoRow label="Irradiancia media anual (kWh/m²·año)" value={fmt(m.irr_mean_kWhm2_y ?? m.irr_average, 1)}/>*/}
+              {/*<InfoRow label="Factor de capacidad (%)" value={fmt(m.factor_capacidad_pct, 1)}/>*/}
+              {/*<InfoRow label="Producción específica (kWh/kWp·año)" value={fmt(prodEspecifica, 1)}/>*/}
+              {/*<InfoRow label="Densidad de potencia (kWp/m²)" value={fmt(densidadPot, 3)} />*/}
               <InfoRow label="Reducción potencial de emisiones (tCO₂/año)" value="–" />
               <InfoRow label="Ahorro económico estimado (€ / año)" value="–" />
-              {/* ======================================= */}
+              {/*<InfoRow label="Área total (m²)" value={fmt(m.area_m2, 1)}/>*/}
 
-              {/* Extras informativos (opcionales) */}
-              <Divider sx={{ my: 1 }} />
-              <InfoRow label="Área de cubierta (m²)" value={fmt(m.area_m2, 1)} />
             </>
           )}
 
@@ -220,30 +205,30 @@ export default function RightLayerPanel({
           Información del certificado
         </Typography>
       </Section>
-
       {/* ===== CELS ===== */}
-      <Section title="CELS y Autoconsumo" headerBg={colors.blueAccent[400]}>
-        <Stack spacing={1.25}>
-          <Stack direction="row" alignItems="center" justifyContent="space-between">
-            <Typography>Mostrar capa</Typography>
-            <Switch checked={celsOn} onChange={onToggleCELS} />
-          </Stack>
-
-          <Typography variant="caption" color="text.secondary">
-            Visualiza el área potencial de una Comunidad Energética alrededor de cada CELS.
-          </Typography>
-
-          <Divider sx={{ my: 0.5 }} />
+      <Section 
+        headerBg={colors.blueAccent[400]}
+        title={
+          <Box sx={{display: "flex", alignItems: "center", width: "100%"}}>
+            <Typography variant="h6" fontWeight={600} sx={{ fontSize: 16, lineHeight: 1.2 }}>
+              CELS y Autoconsumo
+            </Typography>
+            <Box sx={{ ml: "auto", display: "flex", alignItems: "center", gap: 1 }}>
+              <Typography variant="body2" sx={{ color: "rgba(255,255,255,.9)" }}>
+                Mostrar capa
+              </Typography>
+              <Switch checked={celsOn} onChange={onToggleCELS} />
+            </Box>
+          </Box>
+        }
+     >    
           <Typography fontWeight={600} variant="body2">
             CELS que cubren el edificio seleccionado
           </Typography>
-
           {celsHitsLoading && <Typography variant="caption">Buscando CELS…</Typography>}
-
           {celsHitsError && (
             <Typography variant="caption" color="error">{celsHitsError}</Typography>
           )}
-
           {!celsHitsLoading && !celsHitsError && (
             celsHits.length ? (
               <Stack spacing={0.5}>
@@ -262,7 +247,6 @@ export default function RightLayerPanel({
               </Typography>
             )
           )}
-        </Stack>
       </Section>
     </Stack>
   );

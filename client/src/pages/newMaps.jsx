@@ -175,9 +175,9 @@ function Legend({ minZoom = 17, maxZoom = 18 }) {
     <div style={{
       position: "absolute",
       right: 12,
-      bottom: 76,             // subir para no solapar el botón de capas
-      zIndex: 500,            // por debajo de los controles
-      pointerEvents: "none",  // no intercepta clics
+      bottom: 76,             
+      zIndex: 500,            
+      pointerEvents: "none",  
       background: "white",
       padding: "8px 10px",
       borderRadius: 8,
@@ -1824,11 +1824,15 @@ export default function NewMap() {
                 buildingMetrics={bMetrics}
                 buildingMetricsLoading={bMetricsLoading}
                 buildingMetricsError={bMetricsError}
+                shadowStats={bStats}
+                shadowLoading={bStatsLoading}
+                shadowError={bStatsError}
               />
 
 
-              {/* (Opcional) estadísticas del edificio pueden quedarse debajo si te interesa */}
+              {/*
               <AdditionalPanel stats={bStats} loading={bStatsLoading} error={bStatsError} />
+              */}
             </Stack>
           </Grid>
         </Grid>
