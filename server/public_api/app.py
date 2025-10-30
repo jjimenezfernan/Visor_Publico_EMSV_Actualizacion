@@ -1,15 +1,18 @@
-# app.py
+# app.py — single FastAPI app, per-request DuckDB connections
 from __future__ import annotations
-import os, json, duckdb
+import os, json, duckdb, unicodedata
 from typing import List, Tuple
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from dotenv import load_dotenv
 
-# ---------- env / settings ----------
-load_dotenv()  # reads .env from the current folder
+# ============================================================
+# SETTINGS
+# ============================================================
+
+load_dotenv()
 
 def _resolve_db_path() -> str:
     raw = os.getenv("DUCKDB_PATH", "warehouse.duckdb")
@@ -20,9 +23,9 @@ def _resolve_db_path() -> str:
 
 DB_PATH = _resolve_db_path()
 READ_ONLY = os.getenv("READ_ONLY", "true").lower() in ("1", "true", "yes")
-ALLOW_ORIGINS = [o.strip() for o in os.getenv("CORS_ALLOW_ORIGINS", "http://localhost:5173").split(",") if o.strip()]
 
 app = FastAPI(title=f"EMSV API ({'RO' if READ_ONLY else 'RW'})")
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
@@ -35,38 +38,40 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ---------- single shared DuckDB connection ----------
-_con: duckdb.DuckDBPyConnection | None = None
+# ============================================================
+# DATABASE CONNECTION HANDLING (per request)
+# ============================================================
 
-@app.on_event("startup")
-def _startup():
-    global _con
-    _con = duckdb.connect(DB_PATH, read_only=READ_ONLY)
-    # Install/load spatial once; no-ops if already installed
-    _con.execute("INSTALL spatial;")
-    _con.execute("LOAD spatial;")
-    # Optional (DuckDB >= 0.10) – ignore if older
+def get_conn():
+    """Open a new DuckDB connection per request (safe for concurrency/workers)."""
+    con = duckdb.connect(DB_PATH, read_only=READ_ONLY)
+    # Spatial extension should already be installed once in your DB; LOAD is cheap.
+    con.execute("LOAD spatial;")
+    # Tweak concurrency a bit; ignore if not supported
     try:
-        _con.execute("SET lock_timeout='5s';")
+        con.execute("PRAGMA threads=4;")
     except duckdb.Error:
         pass
-
-@app.on_event("shutdown")
-def _shutdown():
-    global _con
-    if _con:
-        _con.close()
-        _con = None
-
-def q(sql: str, params: list | tuple = ()):
-    """Query helper against the shared connection with friendly errors."""
     try:
-        assert _con is not None
-        return _con.execute(sql, params).fetchall()
+        con.execute("SET lock_timeout='5s';")
+    except duckdb.Error:
+        pass
+    try:
+        yield con
+    finally:
+        con.close()
+
+def q(con: duckdb.DuckDBPyConnection, sql: str, params: list | tuple = ()):
+    """Query helper that returns [] on empty and wraps errors."""
+    try:
+        return con.execute(sql, params).fetchall() or []
     except duckdb.Error as e:
         raise HTTPException(500, f"DuckDB error: {e}") from e
 
-# ---------- helpers ----------
+# ============================================================
+# HELPERS
+# ============================================================
+
 def parse_bbox(bbox: str | None) -> tuple[str, list]:
     if not bbox:
         return "", []
@@ -75,9 +80,6 @@ def parse_bbox(bbox: str | None) -> tuple[str, list]:
         raise HTTPException(400, "bbox debe ser 'minx,miny,maxx,maxy'")
     minx, miny, maxx, maxy = map(float, parts)
     return "WHERE ST_Intersects(geom, ST_MakeEnvelope(?, ?, ?, ?))", [minx, miny, maxx, maxy]
-
-def fc(features: list[dict]) -> dict:
-    return {"type": "FeatureCollection", "features": features}
 
 def parse_bbox_for_srid(bbox: str | None, target_srid: int) -> tuple[str, list]:
     if not bbox:
@@ -93,18 +95,36 @@ def parse_bbox_for_srid(bbox: str | None, target_srid: int) -> tuple[str, list]:
         "    ST_MakeEnvelope(?, ?, ?, ?),"
         "    'EPSG:4326',"
         f"    'EPSG:{target_srid}',"
-        "    TRUE"                  # <-- fuerza lon,lat
+        "    TRUE"
         "  )"
         ")"
     )
-    params = [minx, miny, maxx, maxy]
-    return where, params
+    return where, [minx, miny, maxx, maxy]
 
+def fc(features: list[dict]) -> dict:
+    return {"type": "FeatureCollection", "features": features}
 
+# ============================================================
+# MODELS
+# ============================================================
 
+class ZonalReq(BaseModel):
+    geometry: dict  # GeoJSON Polygon/MultiPolygon/Point/…
 
-# ---------- Buffers ----------
-def _select_buffers(where_sql: str, params: list) -> List[Tuple]:
+class SavePointReq(BaseModel):
+    lon: float
+    lat: float
+    buffer_m: float = 100.0
+    user_id: str | None = None
+
+class CelsWithinReq(BaseModel):
+    geometry: dict  # GeoJSON geometry
+
+# ============================================================
+# BUFFERS
+# ============================================================
+
+def _select_buffers(con: duckdb.DuckDBPyConnection, where_sql: str, params: list) -> List[Tuple]:
     sql = f"""
         WITH f AS (
           SELECT id, user_id, buffer_m, geom
@@ -114,10 +134,15 @@ def _select_buffers(where_sql: str, params: list) -> List[Tuple]:
         SELECT id, user_id, buffer_m, ST_AsGeoJSON(geom) AS geom_json
         FROM f;
     """
-    return q(sql, params)
+    return q(con, sql, params)
 
 @app.get("/buffers")
-def get_buffers(bbox: str | None = None, limit: int = 1000, offset: int = 0):
+def get_buffers(
+    bbox: str | None = None,
+    limit: int = 1000,
+    offset: int = 0,
+    con: duckdb.DuckDBPyConnection = Depends(get_conn),
+):
     where_sql = ""
     params: list = []
     if bbox:
@@ -128,115 +153,120 @@ def get_buffers(bbox: str | None = None, limit: int = 1000, offset: int = 0):
         where_sql = "LIMIT ? OFFSET ?"
         params = [limit, offset]
 
-    rows = _select_buffers(where_sql, params)
+    rows = _select_buffers(con, where_sql, params)
     features = [{
         "type": "Feature",
         "geometry": json.loads(gjson) if isinstance(gjson, str) else gjson,
-        "properties": {"id": rid, "user_id": ruser, "buffer_m": float(rbuf) if rbuf is not None else None}
+        "properties": {
+            "id": rid,
+            "user_id": ruser,
+            "buffer_m": float(rbuf) if rbuf is not None else None
+        }
     } for rid, ruser, rbuf, gjson in rows]
     return fc(features)
 
-# ---------- Points ----------
-class SavePointReq(BaseModel):
-    lon: float
-    lat: float
-    buffer_m: float = 100.0
-    user_id: str | None = None
+# ============================================================
+# POINTS
+# ============================================================
 
 @app.post("/points")
-def save_point(req: SavePointReq):
+def save_point(
+    req: SavePointReq,
+    con: duckdb.DuckDBPyConnection = Depends(get_conn),
+):
     if READ_ONLY:
         raise HTTPException(403, "Esta API está en modo read-only")
-    # Create a short transaction for safety
     try:
-        assert _con is not None
-        _con.execute("BEGIN")
-        new_id = _con.execute("SELECT COALESCE(MAX(id),0)+1 FROM points").fetchone()[0]
-        _con.execute(
+        con.execute("BEGIN")
+        new_id = con.execute("SELECT COALESCE(MAX(id),0)+1 FROM points").fetchone()[0]
+        con.execute(
             """
             INSERT INTO points (id, user_id, geom, buffer_m, props)
             VALUES (?, ?, ST_Point(?, ?), ?, {'source':'form'}::JSON)
             """,
             [new_id, req.user_id, req.lon, req.lat, req.buffer_m],
         )
-        _con.execute("COMMIT")
-    except Exception:
-        _con.execute("ROLLBACK")
-        raise
+        con.execute("COMMIT")
+    except Exception as e:
+        con.execute("ROLLBACK")
+        raise HTTPException(500, f"Insert failed: {e}")
     return {"ok": True, "id": new_id}
 
 @app.get("/points/count")
-def points_count(bbox: str | None = None):
+def points_count(
+    bbox: str | None = None,
+    con: duckdb.DuckDBPyConnection = Depends(get_conn),
+):
     where, params = parse_bbox(bbox)
-    cnt = q(f"SELECT COUNT(*) FROM big_points {where};", params)[0][0]
+    cnt = q(con, f"SELECT COUNT(*) FROM big_points {where};", params)[0][0]
     return {"count": int(cnt)}
 
 @app.get("/points/features")
 def points_features(
-    bbox: str | None = Query(None, description="minx,miny,maxx,maxy (WGS84)"),
+    bbox: str | None = Query(None),
     limit: int = 2000,
     offset: int = 0,
+    con: duckdb.DuckDBPyConnection = Depends(get_conn),
 ):
     where, params = parse_bbox(bbox)
-    rows = q(f"""
+    rows = q(con, f"""
         WITH f AS (
           SELECT geom, * EXCLUDE (geom)
           FROM big_points
           {where}
           LIMIT ? OFFSET ?
         )
-        SELECT ST_AsGeoJSON(geom) AS gjson, to_json(f) AS props
-        FROM f;
+        SELECT ST_AsGeoJSON(geom), to_json(f) FROM f;
     """, params + [limit, offset])
 
-    features = [{
-        "type": "Feature",
-        "geometry": json.loads(gjson),
-        "properties": json.loads(props) if isinstance(props, str) else (props or {})
-    } for gjson, props in rows]
-    return fc(features)
+    feats = [
+        {"type": "Feature", "geometry": json.loads(g), "properties": json.loads(p) if isinstance(p, str) else {}}
+        for g, p in rows
+    ]
+    return fc(feats)
 
-# ---------- Shadows ----------
+# ============================================================
+# SHADOWS
+# ============================================================
+
 @app.get("/shadows/features")
 def shadows_features(
-    bbox: str | None = Query(None, description="minx,miny,maxx,maxy (WGS84)"),
+    bbox: str | None = Query(None),
     limit: int = 5000,
     offset: int = 0,
+    con: duckdb.DuckDBPyConnection = Depends(get_conn),
 ):
     where, params = parse_bbox(bbox)
-    rows = q(f"""
+    rows = q(con, f"""
         WITH f AS (
           SELECT geom, shadow_count
           FROM shadows
           {where}
           LIMIT ? OFFSET ?
         )
-        SELECT ST_AsGeoJSON(geom) AS gjson, shadow_count FROM f;
+        SELECT ST_AsGeoJSON(geom), shadow_count FROM f;
     """, params + [limit, offset])
 
-    features = [{
-        "type": "Feature",
-        "geometry": json.loads(gjson),
-        "properties": {"shadow_count": float(sc) if sc is not None else None}
-    } for gjson, sc in rows]
-    return fc(features)
-
-class ZonalReq(BaseModel):
-    geometry: dict  # GeoJSON Polygon/MultiPolygon
+    feats = [
+        {"type": "Feature", "geometry": json.loads(g), "properties": {"shadow_count": float(s) if s is not None else None}}
+        for g, s in rows
+    ]
+    return fc(feats)
 
 @app.post("/shadows/zonal")
-def shadows_zonal(req: ZonalReq):
+def shadows_zonal(req: ZonalReq, con: duckdb.DuckDBPyConnection = Depends(get_conn)):
     geojson = json.dumps(req.geometry)
-    n, avg, mn, mx = q("""
-        WITH zone AS (SELECT ST_GeomFromGeoJSON(?::VARCHAR) AS g),
+    rows = q(con, """
+        WITH zone_raw AS (SELECT ST_GeomFromGeoJSON(?::VARCHAR) AS g),
+        zone AS (
+          SELECT CASE WHEN ST_IsValid(g) THEN g ELSE ST_Buffer(g, 0) END AS g FROM zone_raw
+        ),
         hits AS (
-          SELECT s.shadow_count
-          FROM shadows s, zone z
-          WHERE ST_Intersects(s.geom, z.g)
+          SELECT s.shadow_count FROM shadows s, zone z WHERE ST_Intersects(s.geom, z.g)
         )
-        SELECT COUNT(*), AVG(shadow_count), MIN(shadow_count), MAX(shadow_count) FROM hits;
-    """, [geojson])[0]
-
+        SELECT COALESCE(COUNT(*),0), AVG(shadow_count), MIN(shadow_count), MAX(shadow_count) FROM hits;
+    """, [geojson])
+    n, avg, mn, mx = rows[0] if rows else (0, None, None, None)
     return {
         "count": int(n or 0),
         "avg": float(avg) if avg is not None else None,
@@ -244,42 +274,147 @@ def shadows_zonal(req: ZonalReq):
         "max": float(mx) if mx is not None else None,
     }
 
-# ---------- Buildings ----------
+# ============================================================
+# IRRADIANCE
+# ============================================================
+
+@app.get("/irradiance/features")
+def irradiance_features(
+    bbox: str | None = Query(None),
+    con: duckdb.DuckDBPyConnection = Depends(get_conn),
+):
+    where, params = parse_bbox_for_srid(bbox, 25830)
+    rows = q(con, f"""
+        SELECT ST_AsGeoJSON(ST_Transform(geom, 'EPSG:25830','EPSG:4326', TRUE)), value
+        FROM irr_points
+        {where};
+    """, params)
+    feats = [
+        {"type": "Feature", "geometry": json.loads(g), "properties": {"value": float(v) if v is not None else None}}
+        for g, v in rows
+    ]
+    return fc(feats)
+
+@app.post("/irradiance/zonal")
+def irradiance_zonal(req: ZonalReq, con: duckdb.DuckDBPyConnection = Depends(get_conn)):
+    geojson = json.dumps(req.geometry)
+    rows = q(con, """
+        WITH zone AS (
+          SELECT ST_Transform(
+            ST_GeomFromGeoJSON(?::VARCHAR),
+            'EPSG:4326','EPSG:25830', TRUE
+          ) AS g
+        ),
+        zone_ok AS (
+          SELECT CASE WHEN ST_IsValid(g) THEN g ELSE ST_Buffer(g,0) END AS g FROM zone
+        ),
+        hits AS (
+          SELECT p.value FROM irr_points p, zone_ok z WHERE ST_Intersects(p.geom, z.g)
+        )
+        SELECT COALESCE(COUNT(*),0), AVG(value), MIN(value), MAX(value) FROM hits;
+    """, [geojson])
+    n, avg, mn, mx = rows[0] if rows else (0, None, None, None)
+    return {
+        "count": int(n or 0),
+        "avg": float(avg) if avg is not None else None,
+        "min": float(mn) if mn is not None else None,
+        "max": float(mx) if mx is not None else None,
+    }
+
+# ============================================================
+# BUILDINGS + METRICS
+# ============================================================
+
 @app.get("/buildings/features")
 def buildings_features(
-    bbox: str | None = Query(None, description="minx,miny,maxx,maxy (WGS84)"),
+    bbox: str | None = Query(None),
     limit: int = 50000,
     offset: int = 0,
+    con: duckdb.DuckDBPyConnection = Depends(get_conn),
 ):
     where, params = parse_bbox(bbox)
-    rows = q(f"""
+    rows = q(con, f"""
         WITH f AS (
           SELECT geom, * EXCLUDE (geom)
           FROM buildings
           {where}
           LIMIT ? OFFSET ?
         )
-        SELECT ST_AsGeoJSON(geom) AS gjson, to_json(f) AS props FROM f;
+        SELECT ST_AsGeoJSON(geom), to_json(f) FROM f;
     """, params + [limit, offset])
+    feats = [
+        {"type": "Feature", "geometry": json.loads(g), "properties": json.loads(p) if isinstance(p, str) else {}}
+        for g, p in rows
+    ]
+    return fc(feats)
 
-    features = [{
-        "type": "Feature",
-        "geometry": json.loads(gjson),
-        "properties": json.loads(props) if isinstance(props, str) else (props or {})
-    } for gjson, props in rows]
-    return fc(features)
+@app.get("/buildings/irradiance")
+def buildings_irradiance(
+    bbox: str | None = Query(None),
+    limit: int = 50000,
+    offset: int = 0,
+    con: duckdb.DuckDBPyConnection = Depends(get_conn),
+):
+    where, params = parse_bbox(bbox)
+    rows = q(con, f"""
+        WITH f AS (
+          SELECT b.geom, b.reference, m.irr_mean_kWhm2_y, m.irr_average
+          FROM buildings b
+          LEFT JOIN edificios_metrics m ON UPPER(b.reference)=UPPER(m.reference)
+          {where}
+          LIMIT ? OFFSET ?
+        )
+        SELECT ST_AsGeoJSON(geom), reference, irr_mean_kWhm2_y, irr_average FROM f;
+    """, params + [limit, offset])
+    feats = []
+    for g, ref, irr_mean, irr_avg in rows:
+        v = irr_mean if irr_mean is not None else irr_avg
+        feats.append({
+            "type": "Feature",
+            "geometry": json.loads(g),
+            "properties": {"reference": ref, "irr_building": float(v) if v is not None else None},
+        })
+    return fc(feats)
+
+@app.get("/buildings/metrics")
+def buildings_metrics(reference: str, con: duckdb.DuckDBPyConnection = Depends(get_conn)):
+    ref = reference.strip()
+    rows = q(con, """
+        SELECT reference,
+               irr_average, area_m2, superficie_util_m2, pot_kWp,
+               energy_total_kWh, factor_capacidad_pct, irr_mean_kWhm2_y
+        FROM edificios_metrics WHERE UPPER(reference)=UPPER(?) LIMIT 1;
+    """, [ref])
+    if not rows:
+        raise HTTPException(404, "No metrics for this reference")
+    r = rows[0]
+    return {
+        "reference": r[0],
+        "metrics": {
+            "irr_average": float(r[1]) if r[1] is not None else None,
+            "area_m2": float(r[2]) if r[2] is not None else None,
+            "superficie_util_m2": float(r[3]) if r[3] is not None else None,
+            "pot_kWp": float(r[4]) if r[4] is not None else None,
+            "energy_total_kWh": float(r[5]) if r[5] is not None else None,
+            "factor_capacidad_pct": float(r[6]) if r[6] is not None else None,
+            "irr_mean_kWhm2_y": float(r[7]) if r[7] is not None else None,
+        },
+    }
 
 @app.get("/buildings/by_ref")
-def building_by_reference(ref: str = Query(..., description="Referencia catastral exacta")):
+def building_by_reference(
+    ref: str = Query(..., description="Referencia catastral exacta"),
+    con: duckdb.DuckDBPyConnection = Depends(get_conn),
+):
     ref_norm = ref.strip()
-    rows = q("""
+    rows = q(con, """
         WITH f AS (
           SELECT geom, * EXCLUDE (geom)
           FROM buildings
           WHERE UPPER(reference) = UPPER(?)
           LIMIT 1
         )
-        SELECT ST_AsGeoJSON(geom) AS gjson, to_json(f) AS props FROM f;
+        SELECT ST_AsGeoJSON(geom), to_json(f) FROM f;
     """, [ref_norm])
 
     if not rows:
@@ -292,11 +427,17 @@ def building_by_reference(ref: str = Query(..., description="Referencia catastra
         "properties": json.loads(props) if isinstance(props, str) else (props or {})
     }
 
-# ---------- Address lookup ----------
-@app.get("/address/lookup")
-def lookup_address(street: str, number: str, include_feature: bool = False):
-    import unicodedata
+# ============================================================
+# ADDRESS LOOKUP
+# ============================================================
 
+@app.get("/address/lookup")
+def lookup_address(
+    street: str,
+    number: str,
+    include_feature: bool = False,
+    con: duckdb.DuckDBPyConnection = Depends(get_conn),
+):
     def norm(s: str) -> str:
         s = "" if s is None else s
         s = unicodedata.normalize("NFD", s)
@@ -310,7 +451,7 @@ def lookup_address(street: str, number: str, include_feature: bool = False):
     street_norm = norm(street)
     number_norm = norm(number)
 
-    row = q("""
+    row = q(con, """
         SELECT reference
         FROM address_index
         WHERE street_norm = ? AND number_norm = ?
@@ -324,8 +465,8 @@ def lookup_address(street: str, number: str, include_feature: bool = False):
     if not include_feature:
         return {"reference": reference}
 
-    feat = q("""
-        SELECT ST_AsGeoJSON(geom) as gjson, reference
+    feat = q(con, """
+        SELECT ST_AsGeoJSON(geom), reference
         FROM buildings
         WHERE reference = ?
         LIMIT 1;
@@ -337,41 +478,33 @@ def lookup_address(street: str, number: str, include_feature: bool = False):
         feature = {"type": "Feature", "geometry": json.loads(gjson_str), "properties": {"reference": ref_val}}
     return {"reference": reference, "feature": feature}
 
+# ============================================================
+# CELS
+# ============================================================
 
-# ---------- CELS points (centroids) ----------
 @app.get("/cels/features")
 def cels_features(
     bbox: str | None = Query(None, description="minx,miny,maxx,maxy (WGS84)"),
     limit: int = 20000,
     offset: int = 0,
+    con: duckdb.DuckDBPyConnection = Depends(get_conn),
 ):
     where, params = parse_bbox(bbox)
-    rows = q(f"""
+    rows = q(con, f"""
         WITH j AS (
           SELECT 
-            ST_PointOnSurface(b.geom) AS pt,  -- point we’ll use for geometry & bbox
-            c.id,
-            c.nombre,
-            c.street_norm,
-            c.number_norm,
-            c.reference,
-            c.auto_CEL
+            ST_PointOnSurface(b.geom) AS pt,
+            c.id, c.nombre, c.street_norm, c.number_norm, c.reference, c.auto_CEL
           FROM buildings b
           JOIN autoconsumos_CELS c
             ON LEFT(UPPER(b.reference), 14) = LEFT(UPPER(c.reference), 14)
-          {where.replace("geom", "pt")}      -- make the bbox filter use the POINT
+          {where.replace("geom", "pt")}
           LIMIT ? OFFSET ?
         )
-        SELECT 
-          ST_AsGeoJSON(pt) AS gjson,
-          to_json(struct_pack(
-            id := id,
-            nombre := nombre,
-            street_norm := street_norm,
-            number_norm := number_norm,
-            reference := reference,
-            auto_CEL := auto_CEL
-          )) AS props
+        SELECT ST_AsGeoJSON(pt), to_json(struct_pack(
+            id := id, nombre := nombre, street_norm := street_norm,
+            number_norm := number_norm, reference := reference, auto_CEL := auto_CEL
+        ))
         FROM j;
     """, params + [limit, offset])
 
@@ -387,116 +520,59 @@ def cels_features(
         ],
     }
 
-
-
-
-
-# ---------- CELS membership check ----------
-class CelsWithinReq(BaseModel):
-    geometry: dict  # GeoJSON geometry (Point, Polygon, etc.)
-
 @app.post("/cels/within")
 def cels_within_buffer(
     req: CelsWithinReq,
-    radius_m: float = Query(500, description="Radio del buffer CELS en metros")
+    radius_m: float = Query(500, description="Radio del buffer CELS en metros"),
+    con: duckdb.DuckDBPyConnection = Depends(get_conn),
 ):
-    """
-    Devuelve todos los CELS cuyos buffers contienen (intersectan) la geometría dada.
-    Versión simplificada usando distancia en grados (aproximada).
-    """
     geojson_str = json.dumps(req.geometry)
-    
-    # Convertir metros a grados aproximadamente (1 grado ≈ 111km en latitud)
-    # Para Madrid (40°N), 1 grado longitud ≈ 85km
-    radius_deg = radius_m / 85000.0  # aproximación para longitud en Madrid
-    
-    try:
-        rows = q("""
-            WITH input_geom AS (
-              SELECT ST_GeomFromGeoJSON(?::VARCHAR) AS geom
-            ),
-            cels_points AS (
-              SELECT 
-                c.id,
-                c.nombre,
-                c.street_norm,
-                c.number_norm,
-                c.reference AS cels_ref,
-                c.auto_CEL,
-                ST_Centroid(b.geom) AS point_geom
-              FROM autoconsumos_CELS c
-              JOIN buildings b 
-                ON LEFT(UPPER(b.reference), 14) = LEFT(UPPER(c.reference), 14)
-            ),
-            input_point AS (
-              SELECT ST_Centroid(geom) AS center FROM input_geom
-            )
-            SELECT 
-              cp.id,
-              cp.nombre,
-              cp.street_norm,
-              cp.number_norm,
-              cp.cels_ref,
-              cp.auto_CEL,
-              ST_Distance(cp.point_geom, ip.center) AS distance_deg
-            FROM cels_points cp, input_point ip
-            WHERE ST_Distance(cp.point_geom, ip.center) <= ?
-            ORDER BY distance_deg;
-        """, [geojson_str, radius_deg])
-        
-        cels = []
-        for row in rows:
-            # Convertir distancia de grados a metros (aproximado)
-            distance_deg = float(row[6]) if row[6] is not None else None
-            distance_m = distance_deg * 85000.0 if distance_deg else None
-            
-            cels.append({
-                "id": row[0],
-                "nombre": row[1] if row[1] else "(sin nombre)",
-                "street_norm": row[2],
-                "number_norm": row[3],
-                "reference": row[4],
-                "auto_CEL": int(row[5]) if row[5] is not None else None,
-                "distance_m": distance_m,
-            })
-        
-        return {
-            "count": len(cels),
-            "cels": cels,
-            "radius_m": radius_m
-        }
-    except Exception as e:
-        print(f"Error in /cels/within: {e}")
-        raise HTTPException(500, f"Error: {str(e)}")
+    # 1 degree lon ~ 85km near Madrid; rough conversion is fine for UI proximity
+    radius_deg = radius_m / 85000.0
+    rows = q(con, """
+        WITH input_geom AS (SELECT ST_GeomFromGeoJSON(?::VARCHAR) AS geom),
+        cels_points AS (
+          SELECT c.id, c.nombre, c.street_norm, c.number_norm, c.reference AS cels_ref, c.auto_CEL,
+                 ST_Centroid(b.geom) AS point_geom
+          FROM autoconsumos_CELS c
+          JOIN buildings b ON LEFT(UPPER(b.reference),14)=LEFT(UPPER(c.reference),14)
+        ),
+        input_point AS (SELECT ST_Centroid(geom) AS center FROM input_geom)
+        SELECT cp.id, cp.nombre, cp.street_norm, cp.number_norm, cp.cels_ref, cp.auto_CEL,
+               ST_Distance(cp.point_geom, ip.center) AS distance_deg
+        FROM cels_points cp, input_point ip
+        WHERE ST_Distance(cp.point_geom, ip.center) <= ?
+        ORDER BY distance_deg;
+    """, [geojson_str, radius_deg])
+    cels = []
+    for row in rows:
+        dist_m = (float(row[6]) * 85000.0) if row[6] is not None else None
+        cels.append({
+            "id": row[0],
+            "nombre": row[1] or "(sin nombre)",
+            "street_norm": row[2],
+            "number_norm": row[3],
+            "reference": row[4],
+            "auto_CEL": int(row[5]) if row[5] is not None else None,
+            "distance_m": dist_m,
+        })
+    return {"count": len(cels), "cels": cels, "radius_m": radius_m}
 
-
-
-
-
-
-# Agrega este endpoint temporal para debug en app.py
 @app.get("/debug/cels/count")
-def debug_cels_count():
-    """Endpoint temporal para verificar datos CELS"""
+def debug_cels_count(con: duckdb.DuckDBPyConnection = Depends(get_conn)):
     try:
-        # Contar registros en autoconsumos_CELS
-        count_cels = q("SELECT COUNT(*) FROM autoconsumos_CELS")[0][0]
-        
-        # Contar registros en buildings que coinciden
-        count_matches = q("""
+        count_cels = q(con, "SELECT COUNT(*) FROM autoconsumos_CELS")[0][0]
+        count_matches = q(con, """
             SELECT COUNT(*)
             FROM buildings b
             JOIN autoconsumos_CELS c
               ON LEFT(UPPER(b.reference), 14) = LEFT(UPPER(c.reference), 14)
         """)[0][0]
-        
-        # Muestra ejemplo
-        sample = q("""
+        sample = q(con, """
             SELECT c.id, c.nombre, c.reference, c.auto_CEL
             FROM autoconsumos_CELS c
             LIMIT 5
         """)
-        
         return {
             "cels_count": int(count_cels),
             "buildings_with_cels": int(count_matches),
@@ -504,32 +580,33 @@ def debug_cels_count():
         }
     except Exception as e:
         return {"error": str(e)}
-    
+
+# ============================================================
+# CADASTRE
+# ============================================================
 
 @app.get("/cadastre/feature")
 def cadastre_by_refcat(
     refcat: str = Query(..., description="Referencia catastral"),
-    include_feature: bool = Query(False, description="Incluir geometría GeoJSON")
+    include_feature: bool = Query(False, description="Incluir geometría GeoJSON"),
+    con: duckdb.DuckDBPyConnection = Depends(get_conn),
 ):
-    """Busca un edificio por referencia catastral exacta"""
     ref_norm = refcat.strip()
-    
+
     if not include_feature:
-        # Solo devolver si existe
-        exists = q("SELECT 1 FROM buildings WHERE UPPER(reference) = UPPER(?) LIMIT 1", [ref_norm])
+        exists = q(con, "SELECT 1 FROM buildings WHERE UPPER(reference)=UPPER(?) LIMIT 1", [ref_norm])
         if not exists:
             raise HTTPException(404, "Referencia catastral no encontrada")
         return {"reference": ref_norm}
-    
-    # Con geometría
-    rows = q("""
+
+    rows = q(con, """
         WITH f AS (
           SELECT geom, * EXCLUDE (geom)
           FROM buildings
-          WHERE UPPER(reference) = UPPER(?)
+          WHERE UPPER(reference)=UPPER(?)
           LIMIT 1
         )
-        SELECT ST_AsGeoJSON(geom) AS gjson, to_json(f) AS props FROM f;
+        SELECT ST_AsGeoJSON(geom), to_json(f) FROM f;
     """, [ref_norm])
 
     if not rows:
@@ -542,98 +619,5 @@ def cadastre_by_refcat(
             "type": "Feature",
             "geometry": json.loads(gjson),
             "properties": json.loads(props) if isinstance(props, str) else (props or {})
-        }
-    }
-
-
-
-
-
-
-
-class ZonalReq(BaseModel):
-    geometry: dict  # GeoJSON Polygon/MultiPolygon/Point/...
-
-@app.post("/irradiance/zonal")
-def irradiance_zonal(req: ZonalReq):
-    geojson = json.dumps(req.geometry)
-    n, avg, mn, mx = q("""
-        WITH zone AS (
-          SELECT ST_Transform(
-                     ST_GeomFromGeoJSON(?::VARCHAR),
-                     'EPSG:4326','EPSG:25830', TRUE   -- <-- fuerza lon,lat de entrada
-                 ) AS g
-        ),
-        hits AS (
-          SELECT p.value
-          FROM irr_points p, zone z
-          WHERE ST_Intersects(p.geom, z.g)
-        )
-        SELECT COUNT(*), AVG(value), MIN(value), MAX(value) FROM hits;
-    """, [geojson])[0]
-
-    return {
-        "count": int(n or 0),
-        "avg": float(avg) if avg is not None else None,
-        "min": float(mn) if mn is not None else None,
-        "max": float(mx) if mx is not None else None,
-    }
-
-
-@app.get("/irradiance/features")
-def irradiance_features(
-    bbox: str | None = Query(None, description="minx,miny,maxx,maxy (WGS84)"),
-):
-    where, params = parse_bbox_for_srid(bbox, target_srid=25830)
-    rows = q(f"""
-        SELECT
-          ST_AsGeoJSON(ST_Transform(geom, 'EPSG:25830','EPSG:4326', TRUE)) AS gjson,
-          value
-        FROM irr_points
-        {where};
-    """, params)
-
-    features = [{
-        "type": "Feature",
-        "geometry": json.loads(gjson),
-        "properties": {"value": float(val) if val is not None else None}
-    } for gjson, val in rows]
-
-    return fc(features)
-
-
-
-# ---------- Building metrics ----------
-@app.get("/buildings/metrics")
-def buildings_metrics(reference: str):
-    ref = reference.strip()
-    rows = q("""
-        SELECT reference,
-               irr_average,
-               area_m2,
-               superficie_util_m2,
-               pot_kWp,
-               energy_total_kWh,
-               factor_capacidad_pct,
-               irr_mean_kWhm2_y
-        FROM edificios_metrics
-        WHERE UPPER(reference) = UPPER(?)
-        LIMIT 1;
-    """, [ref])
-
-    if not rows:
-        raise HTTPException(404, "No metrics for this reference")
-
-    r = rows[0]
-    return {
-        "reference": r[0],
-        "metrics": {
-            "irr_average": float(r[1]) if r[1] is not None else None,
-            "area_m2": float(r[2]) if r[2] is not None else None,
-            "superficie_util_m2": float(r[3]) if r[3] is not None else None,
-            "pot_kWp": float(r[4]) if r[4] is not None else None,
-            "energy_total_kWh": float(r[5]) if r[5] is not None else None,
-            "factor_capacidad_pct": float(r[6]) if r[6] is not None else None,
-            "irr_mean_kWhm2_y": float(r[7]) if r[7] is not None else None,
         }
     }
