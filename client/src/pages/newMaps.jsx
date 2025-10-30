@@ -521,7 +521,7 @@ function LegendContinuous({ bins, title = "Irradiancia (kWh/m²·año)", visible
   if (!visible || !bins?.length) return null;
   return (
     <div style={{
-      position: "absolute", right: 12, bottom: 76, zIndex: 500,
+      position: "absolute", right: 5, bottom: 20, zIndex: 500,
       pointerEvents: "none", background: "white", padding: "8px 10px",
       borderRadius: 8, boxShadow: "0 2px 8px rgba(0,0,0,0.15)", font: "12px system-ui"
     }}>
@@ -656,6 +656,52 @@ function BuildingIrradianceLayer({ bbox, onLegendChange }) {
 
   return null;
 }
+
+/* LEYENDA IDEALISTA
+function ZoomAwareIrradiance({ bbox }) {
+  const zoom = useMapZoom();
+  const [legendBins, setLegendBins] = useState(null);
+
+  const showBldg = zoom >= 17 && zoom <= 18;
+  const showPts  = zoom >= 19;
+
+  // helpers para etiquetas
+  const minVal = legendBins?.[0]?.min;
+  const maxVal = legendBins?.[legendBins.length-1]?.max;
+  const colors = legendBins?.map(b => b.color) ?? [];
+
+  return (
+    <>
+      {showPts && bbox && (
+        <>
+          <IrradianceLayer bbox={bbox} minZoom={19} maxZoom={19} />
+          <LegendIrr minZoom={19} maxZoom={19} />
+        </>
+      )}
+
+      {showBldg && bbox && (
+        <>
+          <BuildingIrradianceLayer bbox={bbox} onLegendChange={setLegendBins} />
+          
+
+          {legendBins?.length ? (
+            <TopCenterLegend
+              bins={legendBins}
+              colors={colors}                 // explícito (opcional; con bins basta)
+              leftLabel={`${minVal?.toFixed(0)} kWh/m²·año`}
+              rightLabel={`${maxVal?.toFixed(0)} kWh/m²·año`}
+              top={10}                        // ajústalo si tienes una topbar
+              width={360}                     // anchura de la barra
+              height={12}                     // altura de la barra
+            />
+          ) : null}
+        </>
+      )}
+    </>
+  );
+}
+*/
+
 
 
 function ZoomAwareIrradiance({ bbox, pointsOn=true }) {
