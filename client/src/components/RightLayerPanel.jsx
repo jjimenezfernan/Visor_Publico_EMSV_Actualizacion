@@ -4,9 +4,14 @@ import {
   Box, Typography, Paper, Stack, Divider, Switch, Button,
 } from "@mui/material";
 import { tokens } from "../data/theme";
+import SearchBoxEMSV from "../components/SearchBoxEMSV";
 
-// Small helper to render "Label — Value"
-function InfoRow({ label, value }) {
+
+
+
+
+
+function InfoRow({ label, value, unit }) {
   return (
     <Stack
       direction="row"
@@ -14,26 +19,30 @@ function InfoRow({ label, value }) {
       justifyContent="space-between"
       sx={{ py: 0.4 }}
     >
-      {/* Texto del label más grande y en negrita */}
       <Typography
-        variant="body1"
-        fontWeight={600}
-        sx={{ fontSize: 15 }}
+        sx={{ fontSize: 12, fontWeight: 400, lineHeight: 0.4 }}
       >
         {label}
       </Typography>
 
-      {/* Valor también más grande y en negrita */}
-      <Typography
-        variant="body1"
-        fontWeight={700}
-        sx={{ fontSize: 15, color: "text.primary" }}
-      >
-        {value ?? "–"}
-      </Typography>
+      <Box sx={{ display: "flex", alignItems: "baseline", gap: 0.5 }}>
+        <Typography
+          sx={{ fontSize: 14, fontWeight: 700, lineHeight: 0.7, color: "text.primary" }}
+        >
+          {value ?? "–"}
+        </Typography>
+        {unit && (
+          <Typography
+            sx={{ fontSize: 13, fontWeight: 500, color: "text.secondary" }}
+          >
+            {unit}
+          </Typography>
+        )}
+      </Box>
     </Stack>
   );
 }
+
 
 // Let title be ANY React node (so we can insert a Switch on the right)
 function Section({ title, children, headerBg }) {
@@ -44,7 +53,7 @@ function Section({ title, children, headerBg }) {
           background: headerBg,
           borderRadius: "6px",
           px: "0.6rem",
-          py: "0.35rem",
+          py: "0.15rem",
           mb: 1.2,
           display: "flex",
           alignItems: "center",
@@ -83,8 +92,11 @@ export default function RightLayerPanel({
   celsHits = [], celsHitsLoading = false, celsHitsError = "",
   onToggleIrradiance, onToggleCELS, onToggleCertificate, onJumpToIrradianceZoom,
   buildingRef = null, buildingMetrics = null, buildingMetricsLoading = false, buildingMetricsError = "",
-  shadowStats = null, shadowLoading = false, shadowError = ""
+  shadowStats = null, shadowLoading = false, shadowError = "",
+  searchJsonRef = null, searchLoading = false,  searchApiBase = "",  onSearchFeature = null,  onSearchReset = null,
 }) {
+
+
   const theme = useTheme();
   const colors = tokens(theme.palette.mode);
   const inIrradianceZoom = zoom >= 17 && zoom <= 18;
@@ -116,7 +128,21 @@ export default function RightLayerPanel({
   const densidadPot = safeDiv(m.pot_kWp, m.superficie_util_m2);   // kWp/m²
 
   return (
-    <Stack spacing={2}>
+    <Stack spacing={2} sx={{ fontFamily: theme.typography.fontFamily }}>
+       {/* === Buscador de Direcciones === */}
+      <Section
+        headerBg={colors.blueAccent[400]}
+        title="Buscador de Direcciones"
+      >
+        <SearchBoxEMSV
+          jsonRef={searchJsonRef}
+          loading={searchLoading}
+          apiBase={searchApiBase}
+          onFeature={onSearchFeature}
+          onReset={onSearchReset}
+        />
+      </Section>
+
       {/* ===== IRRADIANCIA (no accordion) ===== */}
       <Section
         headerBg={colors.blueAccent[400]}
@@ -125,11 +151,11 @@ export default function RightLayerPanel({
             <Typography variant="h6" fontWeight={600} sx={{ fontSize: 16, lineHeight: 1.2 }}>
               Datos energéticos
             </Typography>
-            <Box sx={{ ml: "auto", display: "flex", alignItems: "center", gap: 1 }}>
-              <Typography variant="body2" sx={{ color: "rgba(255,255,255,.9)" }}>
-                Mostrar capa
+            <Box sx={{ ml: "auto", display: "flex", alignItems: "center", gap: 0.5 }}>
+              <Typography variant="caption" sx={{ color: "rgba(255,255,255,.9)" }}>
+                {irradianceOn ? "Ocultar capa" : "Mostrar capa"}
               </Typography>
-              <Switch checked={irradianceOn} onChange={onToggleIrradiance} />
+              <Switch size="small" checked={irradianceOn} onChange={onToggleIrradiance} />
             </Box>
           </Box>
         }
@@ -170,7 +196,7 @@ export default function RightLayerPanel({
           {!buildingMetricsLoading && !buildingMetricsError && (
             <>
               {/* ======= ORDEN EXACTO DEL EXCEL ======= */}
-              <InfoRow label="Radiación solar anual (kWh/m²)" value={fmt(m.irr_mean_kWhm2_y ?? m.irr_average, 1)} />
+              <InfoRow label="Radiación solar anual (kWh/m²)" value={fmt(m.irr_mean_kWhm2_y ?? m.irr_average, 1)} /*unit="kWh/m²"  */    />
               <InfoRow label="Horas de sol directo (h/día)" value={fmt(shadowAvg, 2)}/>
               {/*<InfoRow label="Edificios dentro del buffer de una CEL" value="–" />*/}
               {/*<InfoRow label="Número de usuarios del autoconsumo compartido" value="–" />*/}
@@ -209,15 +235,15 @@ export default function RightLayerPanel({
       <Section 
         headerBg={colors.blueAccent[400]}
         title={
-          <Box sx={{display: "flex", alignItems: "center", width: "100%"}}>
+          <Box sx={{ display: "flex", alignItems: "center", width: "100%" }}>
             <Typography variant="h6" fontWeight={600} sx={{ fontSize: 16, lineHeight: 1.2 }}>
               CELS y Autoconsumo
             </Typography>
-            <Box sx={{ ml: "auto", display: "flex", alignItems: "center", gap: 1 }}>
-              <Typography variant="body2" sx={{ color: "rgba(255,255,255,.9)" }}>
-                Mostrar capa
+            <Box sx={{ ml: "auto", display: "flex", alignItems: "center", gap: 0.5 }}>
+              <Typography variant="caption" sx={{ color: "rgba(255,255,255,.9)" }}>
+                {irradianceOn ? "Ocultar capa" : "Mostrar capa"}
               </Typography>
-              <Switch checked={celsOn} onChange={onToggleCELS} />
+              <Switch size="small" checked={celsOn} onChange={onToggleCELS} />
             </Box>
           </Box>
         }

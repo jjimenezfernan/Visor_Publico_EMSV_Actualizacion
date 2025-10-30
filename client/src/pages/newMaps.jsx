@@ -22,7 +22,6 @@ import "leaflet-draw";
 import * as turf from "@turf/turf";
 
 import { tokens } from "../data/theme";
-import SearchBoxEMSV from "../components/SearchBoxEMSV";
 import StaticBuildingsLayer from "../components/BuildingsLayer";
 import AdditionalPanel from "../components/AdditionalPanel";
 import Grid from "@mui/material/Grid";
@@ -76,7 +75,7 @@ function LegendIrr({ minZoom = 17, maxZoom = 19 }) {
 
   return (
     <div style={{
-      position: "absolute", right: 12, bottom: 76, zIndex: 500,
+      position: "absolute", right: 5, bottom: 20, zIndex: 500,
       pointerEvents: "none", background: "white", padding: "8px 10px",
       borderRadius: 8, boxShadow: "0 2px 8px rgba(0,0,0,0.15)", font: "12px system-ui"
     }}>
@@ -1194,10 +1193,12 @@ function CelsBufferLayer({ radiusMeters = 1000 }) {
     if (!map.getPane(paneName)) {
       map.createPane(paneName);
       const p = map.getPane(paneName);
-      p.style.zIndex = 560;          // ⬅️ visible above buildings
-      p.style.pointerEvents = "none"; // ⬅️ pane ignores mouse events (click-through)
+      p.style.zIndex = 560;          
+      p.style.pointerEvents = "none";
     }
   }, [map]);
+
+
 
   useEffect(() => {
     if (!map) return;
@@ -1298,6 +1299,89 @@ function OverlayVisibilityBinder({ targetRef, onChange }) {
 
 export default function NewMap() {
 
+
+  // Usa exactamente la misma lógica que ya tenías en el <SearchBoxEMSV /> inline
+  async function handleSearchBoxFeature(feature) {
+    // centrar/seleccionar
+    highlightSelectedFeature(mapRef.current, feature);
+
+    // métricas del edificio
+    const ref = feature?.properties?.reference;
+    setBRef(ref || null);
+    setBMetrics(null);
+    setBMetricsError("");
+    setBMetricsLoading(!!ref);
+
+    if (ref) {
+      try {
+        const { metrics } = await fetchBuildingMetricsByRef(ref);
+        setBMetrics(metrics);
+      } catch (e) {
+        setBMetricsError(e.message || "No se pudieron cargar las métricas.");
+      } finally {
+        setBMetricsLoading(false);
+      }
+    }
+
+    // sombras + CELS (igual que antes)
+    try {
+      setBStatsError("");
+      setBStatsLoading(true);
+      setBStats(null);
+
+      let geom = feature?.geometry ?? feature;
+      if (geom?.type === "Point" && Array.isArray(geom.coordinates)) {
+        const [x, y] = geom.coordinates;
+        const circle = turf.circle([x, y], 8, { units: "meters", steps: 48 });
+        geom = circle.geometry;
+      }
+
+      const stats = await fetch(`${API_BASE}/shadows/zonal`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ geometry: geom }),
+      }).then(r => r.json());
+
+      setBStats(stats);
+
+      // CELS
+      try {
+        setCelsHitsError("");
+        setCelsHitsLoading(true);
+        setCelsHits([]);
+
+        const hits = await fetchCELSHitsForGeometry(geom, 500);
+        setCelsHits(hits);
+      } catch (e) {
+        console.error("Error fetching CELS for building:", e);
+        setCelsHitsError("No se pudo determinar qué CELS incluyen este edificio.");
+        setCelsHits([]);
+      } finally {
+        setCelsHitsLoading(false);
+      }
+    } catch (e) {
+      console.error(e);
+      setBStatsError("No se pudieron calcular las estadísticas de sombras para este edificio.");
+    } finally {
+      setBStatsLoading(false);
+    }
+  }
+
+  function handleSearchBoxReset() {
+    clearSelectionAndPopup();
+    setBStats(null);
+    setBStatsError("");
+    setBStatsLoading(false);
+    setCelsHits([]);
+    setCelsHitsError("");
+    setCelsHitsLoading(false);
+    setBRef(null);
+    setBMetrics(null);
+    setBMetricsError("");
+    setBMetricsLoading(false);
+  }
+
+
   const [bRef, setBRef] = useState(null);
   const [bMetrics, setBMetrics] = useState(null);
   const [bMetricsLoading, setBMetricsLoading] = useState(false);
@@ -1314,7 +1398,7 @@ export default function NewMap() {
   const [celsHitsLoading, setCelsHitsLoading] = useState(false);
   const [celsHitsError, setCelsHitsError] = useState("");
 
-  const [irradianceVisible, setIrradianceVisible] = useState(false); 
+  const [irradianceVisible, setIrradianceVisible] = useState(true); 
   const [celsVisible, setCelsVisible] = useState(true);
   const [certificateVisible, setCertificateVisible] = useState(false);
 
@@ -1597,6 +1681,10 @@ export default function NewMap() {
   };
 
 
+    useEffect(() => {
+      const p = mapRef.current?.getPane?.("cels-pane");
+      if (p) p.style.opacity = celsVisible ? "1" : "0";
+    }, [celsVisible]);
 
 
   
@@ -1666,7 +1754,7 @@ export default function NewMap() {
 
 
                 {celsVisible && <CelsBufferLayer radiusMeters={500} />}
-
+                
                 {certificateVisible && (
                 // TODO: sustituye por tu capa real de certificados
                 null
@@ -1694,116 +1782,8 @@ export default function NewMap() {
           </Grid>
 
           <Grid item xs={12} md={4}>
-            <Stack spacing={2} sx={{ height: "100%" }}>
-              <Box
-                sx={{
-                  backgroundColor: "#f3f4f6",
-                  borderRadius: "10px",
-                  p: "0.75rem 1rem",
-                }}
-              >
-                <Typography
-                  variant="h6"
-                  color="#fff"
-                  fontWeight={600}
-                  sx={{
-                    background: colors.blueAccent[400],
-                    borderRadius: "6px",
-                    px: "0.6rem",
-                    py: "0.35rem",
-                    mb: 1,
-                    lineHeight: 1.2,
-                  }}
-                >
-                  Buscador de Direcciones
-                </Typography>
-
-                <SearchBoxEMSV
-                  jsonRef={jsonRef}
-                  loading={loadingEmsv}
-                  apiBase={API_BASE}
-                  onFeature={async (feature) => {
-                    highlightSelectedFeature(mapRef.current, feature);
-                    const ref = feature?.properties?.reference;
-                    setBRef(ref || null);
-                    setBMetrics(null);
-                    setBMetricsError("");
-                    setBMetricsLoading(!!ref);
-
-                    if (ref) {
-                      try {
-                        const { metrics } = await fetchBuildingMetricsByRef(ref);
-                        setBMetrics(metrics);
-                      } catch (e) {
-                        setBMetricsError(e.message || "No se pudieron cargar las métricas.");
-                      } finally {
-                        setBMetricsLoading(false);
-                      }
-                    }
-
-                    
-                    try {
-                      setBStatsError("");
-                      setBStatsLoading(true);
-                      setBStats(null);
-
-                      let geom = feature?.geometry ?? feature;
-                      if (geom?.type === "Point" && Array.isArray(geom.coordinates)) {
-                        const [x, y] = geom.coordinates;
-                        const circle = turf.circle([x, y], 8, { units: "meters", steps: 48 });
-                        geom = circle.geometry;
-                      }
-                      
-                      const stats = await fetch(`${API_BASE}/shadows/zonal`, {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({ geometry: geom }),
-                      }).then(r => r.json());
-
-                      setBStats(stats);
-                      setCelsHitsError("");
-                      setCelsHitsLoading(true);
-                      
-                      
-                      // --- 2. Consultar membresía a CELS ---
-                      try {
-                        setCelsHitsError("");
-                        setCelsHitsLoading(true);
-                        setCelsHits([]);
-
-                        const hits = await fetchCELSHitsForGeometry(geom, 500);
-                        setCelsHits(hits);
-                        const center = selectionRef.current?.getBounds?.()?.getCenter?.();                       
-                      } catch (e) {
-                        console.error("Error fetching CELS for building:", e);
-                        setCelsHitsError("No se pudo determinar qué CELS incluyen este edificio.");
-                        setCelsHits([]);
-                      } finally {
-                        setCelsHitsLoading(false);
-                      }
-                    } catch (e) {
-                      console.error(e);
-                      setBStatsError("No se pudieron calcular las estadísticas de sombras para este edificio.");
-                    } finally {
-                      setBStatsLoading(false);
-                    }
-                  }}
-
-                  onReset={() => {
-                    clearSelectionAndPopup();
-                    setBStats(null);
-                    setBStatsError("");
-                    setBStatsLoading(false);
-                    setCelsHits([]);          // limpiar CELS
-                    setCelsHitsError("");
-                    setCelsHitsLoading(false);
-                  }}
-                />
-              </Box>
-
+            <Stack spacing={1} sx={{ height: "100%" }}>
               {/* Panel de capas (Irradiance / CELS / Certificate) */}
-
-
               <RightLayerPanel
                 irradianceOn={irradianceVisible}
                 celsOn={celsVisible}
@@ -1827,6 +1807,11 @@ export default function NewMap() {
                 shadowStats={bStats}
                 shadowLoading={bStatsLoading}
                 shadowError={bStatsError}
+                searchJsonRef={jsonRef}
+                searchLoading={loadingEmsv}
+                searchApiBase={API_BASE}
+                onSearchFeature={handleSearchBoxFeature}
+                onSearchReset={handleSearchBoxReset}
               />
 
 
