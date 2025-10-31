@@ -152,7 +152,50 @@ function BboxWatcher({ onBboxChange }) {
   return null;
 }
 
+// Leyenda (no bloquea clics y no tapa el LayersControl)
+function Legend({ minZoom = 17, maxZoom = 18 }) {
+  const map = useMap();
+  const [visible, setVisible] = useState(false);
 
+  useEffect(() => {
+    if (!map) return;
+    const check = () => {
+      const z = map.getZoom();
+      setVisible(z >= minZoom && z <= maxZoom);
+    };
+    map.on("zoomend", check);
+    check();
+    return () => map.off("zoomend", check);
+  }, [map, minZoom, maxZoom]);
+
+  if (!visible) return null;
+
+  return (
+    <div style={{
+      position: "absolute",
+      right: 12,
+      bottom: 76,             
+      zIndex: 500,            
+      pointerEvents: "none",  
+      background: "white",
+      padding: "8px 10px",
+      borderRadius: 8,
+      boxShadow: "0 2px 8px rgba(0,0,0,0.15)",
+      font: "12px system-ui"
+    }}>
+      <div style={{ fontWeight: 600, marginBottom: 6 }}>Horas de sombra</div>
+      {BINS.map((b, i) => (
+        <div key={i} style={{ display: "flex", alignItems: "center", margin: "2px 0" }}>
+          <span style={{
+            display: "inline-block", width: 12, height: 12, borderRadius: 9999,
+            background: b.color, marginRight: 8, border: "1px solid #999"
+          }} />
+          <span>{b.min} – {b.max} h</span>
+        </div>
+      ))}
+    </div>
+  );
+}
 
 // Indicador de zoom (lo conservas si lo necesitas)
 function ZoomStatus({ minZoom = 17, maxZoom = 18 }) {
@@ -1074,6 +1117,83 @@ function CustomZoom({ min=1, max=19, shadowMin=17, shadowMax=19 }) {
   );
 }
 
+function ControlsColumn({ shadowsVisible, onToggleShadows, shadowMin=17, shadowMax=18 }) {
+  const map = useMap();
+  const [z, setZ] = useState(() => map?.getZoom?.() ?? 0);
+
+  useEffect(() => {
+    const onZoom = () => setZ(map.getZoom());
+    map.on("zoomend", onZoom);
+    setZ(map.getZoom());
+    return () => map.off("zoomend", onZoom);
+  }, [map]);
+
+  const inRange = z >= shadowMin && z <= shadowMax;
+  const needText =
+    z < shadowMin
+      ? `Acércate ${shadowMin - z} nivel${shadowMin - z === 1 ? "" : "es"} para ver sombras`
+      : z > shadowMax
+      ? `Aléjate ${z - shadowMax} nivel${z - shadowMax === 1 ? "" : "es"} para ver sombras`
+      : "Sombras activas (niveles 17–18).";
+  const targetZoom = z < shadowMin ? shadowMin : z > shadowMax ? shadowMax : z;
+
+  return (
+    <div style={{
+      position:"absolute", top:12, right:12, zIndex:1000,
+      display:"flex", flexDirection:"column", alignItems:"flex-end", gap:10
+    }}>
+      <button
+        onClick={onToggleShadows}
+        style={{
+          border:"none",
+          background: shadowsVisible ? "#3b82f6" : "#6b7280",
+          color:"#fff",
+          borderRadius:10,
+          padding:"8px 12px",
+          cursor:"pointer",
+          fontWeight:700,
+          display:"flex", alignItems:"center", gap:8,
+          boxShadow:"0 2px 8px rgba(0,0,0,0.15)"
+        }}
+      >
+        <span role="img" aria-label="sol">☀️</span>
+        {shadowsVisible ? "Ocultar sombras" : "Mostrar sombras"}
+      </button>
+
+      <CustomZoom min={14} max={19} shadowMin={shadowMin} shadowMax={shadowMax} />
+
+      <div style={{
+        background:"white",
+        borderRadius:10,
+        boxShadow:"0 2px 8px rgba(0,0,0,0.15)",
+        padding:"10px 12px",
+        font:"12px system-ui",
+        minWidth: 240
+      }}>
+        <div style={{ fontWeight:700, marginBottom:6 }}>Sombras</div>
+        <div style={{ marginBottom: inRange ? 0 : 8 }}>
+          {needText}
+        </div>
+        {!inRange && (
+          <button
+            onClick={() => map.flyTo(map.getCenter(), targetZoom, { duration: 0.6 })}
+            style={{
+              border:"none",
+              background:"#3b82f6",
+              color:"#fff",
+              borderRadius:8,
+              padding:"6px 10px",
+              cursor:"pointer",
+              fontWeight:600
+            }}
+          >
+            Ir a zoom {targetZoom}
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
 
 function useFillToBottom(ref, extraBottom = 0) {
   const [h, setH] = useState(400);
