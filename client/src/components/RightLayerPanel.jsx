@@ -1,10 +1,14 @@
 // components/RightLayerPanel.jsx
+// components/RightLayerPanel.jsx
 import { useTheme } from "@mui/material/styles";
 import {
-  Box, Typography, Paper, Stack, Divider, Switch, Button,
+  Box, Typography, Paper, Stack, Divider, Switch, Button, IconButton,
 } from "@mui/material";
+import InfoOutlinedIcon from "@mui/icons-material/InfoOutlined";
+import { useState,useEffect } from "react";
 import { tokens } from "../data/theme";
-import SearchBoxEMSV from "../components/SearchBoxEMSV";
+import SearchBoxEMSV from "../components/SearchBoxEMSV_irr";
+import Link from "@mui/material/Link";
 
 
 
@@ -18,37 +22,91 @@ const fmtInt = (v, suf = "") =>
   isFiniteNum(v) ? `${Math.round(Number(v))}${suf}` : "–";
 
 
-function InfoRow({ label, value, unit }) {
-  return (
-    <Stack
-      direction="row"
-      alignItems="center"
-      justifyContent="space-between"
-      sx={{ py: 0.4 }}
-    >
-      <Typography
-        sx={{ fontSize: 14, fontWeight: 400, lineHeight: 0.7 }}
-      >
-        {label}
-      </Typography>
 
-      <Box sx={{ display: "flex", alignItems: "baseline", gap: 0.6 }}>
-        <Typography
-          sx={{ fontSize: 14, fontWeight: 700, lineHeight: 0.9, color: "text.primary" }}
-        >
-          {value ?? "–"}
-        </Typography>
-        {unit && (
+
+
+
+import Tooltip from "@mui/material/Tooltip";
+
+function InfoRow({ label, value, unit, description }) {
+  return (
+    <Box sx={{ py: 0.4 }}>
+      <Stack
+        direction="row"
+        alignItems="center"
+        justifyContent="space-between"
+      >
+        <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
           <Typography
-            sx={{ fontSize: 13, fontWeight: 500, color: "text.secondary" }}
+            sx={{ fontSize: 14, fontWeight: 400, lineHeight: 1 }}
           >
-            {unit}
+            {label}
           </Typography>
-        )}
-      </Box>
-    </Stack>
+
+          {description && (
+            <Tooltip
+              title={
+                <Typography sx={{ fontSize: "0.8rem", lineHeight: 1.5 }}>
+                  {description}
+                </Typography>
+              }
+              arrow
+              placement="top"
+              enterDelay={200}
+              leaveDelay={200}
+              componentsProps={{
+                tooltip: {
+                  sx: {
+                    bgcolor: "rgba(0, 0, 0, 0.92)",
+                    color: "#fff",
+                    fontSize: "1rem",           // fallback size
+                    fontWeight: 400,
+                    lineHeight: 1.5,
+                    maxWidth: 380,
+                    p: 1.5,                     // more internal padding = more comfortable
+                    borderRadius: 2,
+                    boxShadow: "0 8px 24px rgba(0,0,0,0.3)",
+                  },
+                },
+                arrow: {
+                  sx: {
+                    color: "rgba(0, 0, 0, 0.92)",
+                  },
+                },
+              }}
+            >
+              <IconButton size="small" sx={{ p: 0.2 }}>
+                <InfoOutlinedIcon sx={{ fontSize: 16 }} />
+              </IconButton>
+            </Tooltip>
+          )}
+        </Box>
+
+        {/* Value + unit */}
+        <Box sx={{ display: "flex", alignItems: "baseline", gap: 0.6 }}>
+          <Typography
+            sx={{
+              fontSize: 14,
+              fontWeight: 700,
+              lineHeight: 0.9,
+              color: "text.primary",
+            }}
+          >
+            {value ?? "–"}
+          </Typography>
+          {unit && (
+            <Typography
+              sx={{ fontSize: 13, fontWeight: 700, color: "text.secondary" }}
+            >
+              {unit}
+            </Typography>
+          )}
+        </Box>
+      </Stack>
+    </Box>
   );
 }
+
 
 /*
 // Let title be ANY React node (so we can insert a Switch on the right)
@@ -144,14 +202,83 @@ function Section({ title, children, headerBg, noPaper = false }) {
 
 
 
+
+// Colores por letra (A = más eficiente, G = menos eficiente)
+const energyColorByLetter = {
+  A: "#4CAF50", // verde
+  B: "#8BC34A",
+  C: "#CDDC39",
+  D: "#FFEB3B",
+  E: "#FFC107",
+  F: "#FF9800",
+  G: "#F44336", // rojo
+};
+
+
+function EnergyCertificate({ title, rating, isEstimated, date }) {
+  const letter = (rating || "").toString().toUpperCase();
+  const color = energyColorByLetter[letter] || "#BDBDBD";
+  const hasLetter = !!energyColorByLetter[letter];
+  const fmtDateEs = (s) => {
+    if (!s) return "";
+    const d = new Date(s);
+    if (Number.isNaN(d.getTime())) return s;
+    return d.toLocaleDateString("es-ES");
+  };
+
+  const showDate = hasLetter && !isEstimated && !!date;
+
+  return (
+    <Box sx={{ mb: 1.5 }}>
+      <Typography sx={{ fontSize: 14, fontWeight: 600, mb: 0.5, color: "text.primary" }}>
+        {title}
+      </Typography>
+
+      <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+        <Box
+          sx={{
+            clipPath: "polygon(0 0, 88% 0, 100% 50%, 88% 100%, 0 100%)",
+            px: 1.8,
+            py: 0.6,
+            minWidth: 52,
+            bgcolor: color,
+            opacity: isEstimated ? 0.75 : 1,
+            borderRadius: 0.5,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+          }}
+        >
+          <Typography sx={{ fontSize: 16, fontWeight: 800, color: "#fff", lineHeight: 1 }}>
+            {hasLetter ? letter : "–"}
+          </Typography>
+        </Box>
+
+        <Typography variant="caption" sx={{ color: "text.secondary" }}>
+          {hasLetter ? `Fuente: ${isEstimated ? "estimado" : "oficial"}` : "Sin información de certificado"}
+          {showDate ? ` · Fecha: ${fmtDateEs(date)}` : ""}
+        </Typography>
+      </Box>
+    </Box>
+  );
+}
+
+
+
+
+
 export default function RightLayerPanel({
-  irradianceOn, celsOn, certificateOn, zoom,
+  irradianceOn, celsOn, certificateOn, certMode, zoom,
   celsHits = [], celsHitsLoading = false, celsHitsError = "",
   onToggleIrradiance, onToggleCELS, onToggleCertificate, onJumpToIrradianceZoom,
   buildingRef = null, buildingMetrics = null, buildingMetricsLoading = false, buildingMetricsError = "",
   shadowStats = null, shadowLoading = false, shadowError = "",
   searchJsonRef = null, searchLoading = false,  searchApiBase = "",  onSearchFeature = null,  onSearchReset = null,
+  onSelectCertificateMode = null, onClearCertificateMode = null,
 }) {
+
+  const isCo2Active = certificateOn && certMode === "co2";
+  const isNoRenovActive = certificateOn && certMode === "norenov";
 
 
   const theme = useTheme();
@@ -166,6 +293,19 @@ export default function RightLayerPanel({
   const safeSub = (a, b) => (isNum(a) && isNum(b) ? Number(a) - Number(b) : null);
 
   const m = buildingMetrics || {};
+
+const E = Number(m.energy_total_kWh);
+
+// precios desde la API (tablas DuckDB)
+const Pener = Number(m?.precio_energia_eur_kwh);
+const Pexc  = Number(m?.precio_energia_eur_kwh_excedente);
+
+// Ahorro estimado: 50% autoconsumo al precio energía + 50% excedente al precio excedente
+const ahorroEstimado =
+  Number.isFinite(E) && Number.isFinite(Pener) && Number.isFinite(Pexc)
+    ? E * (Pener * 0.5 + Pexc * 0.5)
+    : null;
+
 
   const sunDirectAvgFromAPI = shadowStats?.sun_avg;
   const shadowAvg = shadowStats?.avg;
@@ -184,6 +324,20 @@ export default function RightLayerPanel({
   const prodEspecifica = safeDiv(m.energy_total_kWh, m.pot_kWp); // kWh/kWp·año
   const densidadPot = safeDiv(m.pot_kWp, m.superficie_util_m2);   // kWp/m²
 
+
+
+  const precioEnergia = Number(m?.precio_energia_eur_kwh);
+  const Eanual = Number(m?.energy_total_kWh);
+
+  const ahorroMaximo =
+    Number.isFinite(Eanual) && Number.isFinite(precioEnergia)
+      ? Eanual * precioEnergia
+      : null;
+
+  if (process.env.NODE_ENV !== "production") {
+    console.log("precioEnergia:", precioEnergia, "Eanual:", m?.energy_total_kWh, "ahorroMaximo:", ahorroMaximo);
+  }
+
   return (
     <Stack spacing={1.5} sx={{ fontFamily: theme.typography.fontFamily }}>
        {/* === Buscador de Direcciones === */}
@@ -199,99 +353,6 @@ export default function RightLayerPanel({
           onFeature={onSearchFeature}
           onReset={onSearchReset}
         />
-      </Section>
-
-      {/* ===== IRRADIANCIA (no accordion) ===== */}
-      <Section
-        headerBg={colors.blueAccent[400]}
-        title={
-          <Box sx={{ display: "flex", alignItems: "center", width: "100%" }}>
-            <Typography variant="h6" fontWeight={600} sx={{ fontSize: 16, lineHeight: 1.2 }}>
-              Datos energéticos
-            </Typography>
-            <Box sx={{ ml: "auto", display: "flex", alignItems: "center", gap: 0.5 }}>
-              <Typography variant="caption" sx={{ color: "rgba(255,255,255,.9)" }}>
-                {irradianceOn ? "Ocultar capa" : "Mostrar capa"}
-              </Typography>
-              <Switch size="small" checked={irradianceOn} onChange={onToggleIrradiance} />
-            </Box>
-          </Box>
-        }
-      >
-        { /*viso de zoom
-        {!inIrradianceZoom && (
-          <Box sx={{ mb: 1 }}>
-            <Typography variant="caption">
-              Necesitas zoom <b>17–18</b> para ver la capa.
-            </Typography>{" "}
-            <Button size="small" variant="contained" onClick={onJumpToIrradianceZoom} sx={{ ml: 1 }}>
-              Ir a zoom óptimo
-            </Button>
-          </Box>
-        )}
-        A */}
-
-        {/* Panel de indicadores */}
-        <Box
-          sx={{
-            p: 1,
-            borderRadius: 1,
-            backgroundColor: "#fff",
-            border: "1px solid",
-            borderColor: "divider",
-          }}
-        >
-          {buildingMetricsLoading && (
-            <Typography variant="caption">Cargando información…</Typography>
-          )}
-
-          {buildingMetricsError && (
-            <Typography variant="caption" color="error">
-              {buildingMetricsError}
-            </Typography>
-          )}
-
-          {!buildingMetricsLoading && !buildingMetricsError && (
-            <>
-              {/* ======= ORDEN EXACTO DEL EXCEL ======= */}
-              <InfoRow label="Radiación solar anual (kWh/m²)" value={fmt(m.irr_mean_kWhm2_y ?? m.irr_average, 1)} /*unit="kWh/m²"  */    />
-              <InfoRow label="Horas de sol directo (h/día)" value={fmt(shadowAvg, 2)}/>
-              {/*<InfoRow label="Edificios dentro del buffer de una CEL" value="–" />*/}
-              {/*<InfoRow label="Número de usuarios del autoconsumo compartido" value="–" />*/}
-              {/*<InfoRow label="Edificios dentro del buffer de un autoconsumo compartido" value="–" />*/}
-              {/*<InfoRow label="Calificación energética (A–G)" value="–" />*/}
-              <InfoRow label="Superficie útil para instalación fotovoltaica (m²)" value={fmt(m.superficie_util_m2, 1)} />
-              {/*<InfoRow label="Porcentaje de superficie útil (%)" value={pct(pctSuperficieUtil, 1)} />*/}
-              <InfoRow label="Potencia fotovoltaica instalable (kWp)" value={fmt(m.pot_kWp, 1)}  />
-              <InfoRow label="Energía fotovoltaica anual estimada (kWh/año)" value={fmt(m.energy_total_kWh, 0)} />
-              {/*<InfoRow label="Irradiancia media anual (kWh/m²·año)" value={fmt(m.irr_mean_kWhm2_y ?? m.irr_average, 1)}/>*/}
-              {/*<InfoRow label="Factor de capacidad (%)" value={fmt(m.factor_capacidad_pct, 1)}/>*/}
-              {/*<InfoRow label="Producción específica (kWh/kWp·año)" value={fmt(prodEspecifica, 1)}/>*/}
-              {/*<InfoRow label="Densidad de potencia (kWp/m²)" value={fmt(densidadPot, 3)} />*/}
-              <InfoRow label="Reducción potencial de emisiones (tCO₂/año)" value="–" />
-              <InfoRow label="Ahorro económico estimado (€ / año)" value="–" />
-              {/*<InfoRow label="Área total (m²)" value={fmt(m.area_m2, 1)}/>*/}
-
-            </>
-          )}
-          
-          {/*
-          {!buildingRef && !buildingMetricsLoading && !buildingMetricsError && (
-            <Typography variant="caption" color="text.secondary">
-              Selecciona un edificio en el mapa o con el buscador.
-            </Typography>
-          )}
-          */}
-        </Box>
-      </Section>
-
-      {/* ===== Certificados (placeholder) ===== */}
-      <Section title="Certificados Energéticos" headerBg={colors.blueAccent[400]}>
-        {!buildingMetricsLoading && !buildingMetricsError && (
-        <>
-          <InfoRow label="Calificación energética (A–G)" value="–" />
-        </>
-        )}
       </Section>
       {/* ===== CELS ===== */}
       <Section 
@@ -348,7 +409,7 @@ export default function RightLayerPanel({
 
                   const street = c.street_norm || c.street || c.calle || "";
                   const number = c.number_norm ?? c.numero ?? "";
-
+                  const canJoin = occ != null && occ < 100;
                   const tipo = c.auto_CEL === 1 ? "CEL" : "Autoconsumo Compartido";
                     if (process.env.NODE_ENV !== "production") {
                        console.log("CEL hit debug:", c);
@@ -388,6 +449,44 @@ export default function RightLayerPanel({
                         {"  -  "}
                         Distancia: <strong>{dist != null ? `${Math.round(dist)} m` : "–"}</strong>
                       </Typography>
+                      
+                      <Typography
+                        variant="body1"
+                        color="text.secondary"
+                        sx={{ display: "block", mt: 0.25, fontSize: "0.9rem" }}
+                      >
+                        Si quieres unirte a esta  &nbsp;<strong>{tipo}</strong>,&nbsp;
+                        {canJoin ? (
+                          <Link
+                            href="https://emsvgetafe.org/hogares/comunidades-energeticas-residenciales/"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            underline="always"
+                            sx={{
+                              color: "inherit",        
+                              fontWeight: 700,
+                              cursor: "pointer",
+                              textDecorationThickness: "2px",
+                              "&:hover": {
+                                textDecorationColor: "currentColor",
+                              },
+                            }}
+                          >
+                            pulsa aquí
+                          </Link>
+                        ) : (
+                          <Typography
+                            component="span"
+                            sx={{
+                              color: "inherit",       
+                              fontWeight: 700,
+                              opacity: 0.6,           
+                            }}
+                          >
+                            no disponible (ocupación 100%)
+                          </Typography>
+                        )}
+                      </Typography>
                     </Box>
                   );
                 })}
@@ -400,6 +499,201 @@ export default function RightLayerPanel({
           )}
 
 
+      </Section>
+      {/* ===== IRRADIANCIA (no accordion) ===== */}
+      <Section
+        headerBg={colors.blueAccent[400]}
+        title={
+          <Box sx={{ display: "flex", alignItems: "center", width: "100%" }}>
+            <Typography variant="h6" fontWeight={600} sx={{ fontSize: 16, lineHeight: 1.2 }}>
+              Datos energéticos
+            </Typography>
+            <Box sx={{ ml: "auto", display: "flex", alignItems: "center", gap: 0.5 }}>
+              <Typography variant="caption" sx={{ color: "rgba(255,255,255,.9)" }}>
+                {irradianceOn ? "Ocultar capa" : "Mostrar capa"}
+              </Typography>
+              <Switch size="small" checked={irradianceOn} onChange={onToggleIrradiance} />
+            </Box>
+          </Box>
+        }
+      >
+        { /*viso de zoom
+        {!inIrradianceZoom && (
+          <Box sx={{ mb: 1 }}>
+            <Typography variant="caption">
+              Necesitas zoom <b>17–18</b> para ver la capa.
+            </Typography>{" "}
+            <Button size="small" variant="contained" onClick={onJumpToIrradianceZoom} sx={{ ml: 1 }}>
+              Ir a zoom óptimo
+            </Button>
+          </Box>
+        )}
+        A */}
+
+        {/* Panel de indicadores */}
+        <Box
+          sx={{
+            p: 1,
+            borderRadius: 1,
+            backgroundColor: "#fff",
+            border: "1px solid",
+            borderColor: "divider",
+          }}
+        >
+          {buildingMetricsLoading && (
+            <Typography variant="caption">Cargando información…</Typography>
+          )}
+
+          {buildingMetricsError && (
+            <Typography variant="caption" color="error">
+              {buildingMetricsError}
+            </Typography>
+          )}
+
+          {!buildingMetricsLoading && !buildingMetricsError && (
+            <>
+          
+              <InfoRow
+                label="Radiación solar anual (kWh/m²)"
+                value={fmt(m.irr_mean_kWhm2_y ?? m.irr_average, 1)}
+                description="Energía solar media que recibe cada metro cuadrado de la cubierta en un año."
+              />
+              {/*
+              <InfoRow
+                label="Horas de sol directo (h/día)"
+                value={fmt(shadowAvg, 2)}
+                description="Número medio de horas al día en las que la cubierta recibe sol directo sin sombras."
+              />
+              */}
+              {/*<InfoRow label="Edificios dentro del buffer de una CEL" value="–" />*/}
+              {/*<InfoRow label="Número de usuarios del autoconsumo compartido" value="–" />*/}
+              {/*<InfoRow label="Edificios dentro del buffer de un autoconsumo compartido" value="–" />*/}
+              {/*<InfoRow label="Calificación energética (A–G)" value="–" />*/}
+
+              <InfoRow
+                label="Superficie útil para instalación fotovoltaica (m²)"
+                value={fmt(m.superficie_util_m2, 1)}
+                description="Superficie estimada disponible para colocar paneles solares."
+              />
+
+              {/*<InfoRow label="Porcentaje de superficie útil (%)" value={pct(pctSuperficieUtil, 1)} />*/}
+
+              <InfoRow
+                label="Potencia fotovoltaica instalable (kWp)"
+                value={fmt(m.pot_kWp, 1)}
+                description="Potencia pico máxima que podría instalarse en la superficie útil."
+              />
+
+              <InfoRow
+                label="Energía fotovoltaica anual estimada (kWh/año)"
+                value={fmt(m.energy_total_kWh, 0)}
+                description="Energía eléctrica aproximada que produciría la instalación en un año."
+              />
+
+              {/*<InfoRow label="Irradiancia media anual (kWh/m²·año)" value={fmt(m.irr_mean_kWhm2_y ?? m.irr_average, 1)}/>*/}
+              {/*<InfoRow label="Factor de capacidad (%)" value={fmt(m.factor_capacidad_pct, 1)}/>*/}
+              {/*<InfoRow label="Producción específica (kWh/kWp·año)" value={fmt(prodEspecifica, 1)}/>*/}
+              {/*<InfoRow label="Densidad de potencia (kWp/m²)" value={fmt(densidadPot, 3)} />*/}
+
+              <InfoRow
+                label="Reducción potencial de emisiones (tCO₂/año)"
+                value={fmt(m.reduccion_emisiones, 2)}
+                description="Toneladas de CO₂ que se dejarían de emitir al generar esta energía con fotovoltaica. Factor: 0,231kgCO₂/kWh"
+              />
+              <InfoRow
+                  label="Ahorro económico estimado (€ / año)"
+                  value={fmt(ahorroEstimado, 2)}
+                  description={
+                    `Ahorro anual estimado con un reparto 50% autoconsumo y 50% excedentes.\n` +
+                    `Precio energía: ${Number.isFinite(Pener) ? `${Pener} €/kWh` : "–"}\n` +
+                    `Precio excedente: ${Number.isFinite(Pexc) ? `${Pexc} €/kWh` : "–"}\n` +
+                    `% autoconsumo = % excedentes = 0,5`
+                  }
+                />
+              <InfoRow
+                label="Máximo ahorro económico estimado (€ / año)"
+                value={fmt(ahorroMaximo, 2)}
+                description={
+                `Ahorro anual máximo en la factura eléctrica si se aprovecha toda la energía generada.\n`+
+                `Precio energía: ${Number.isFinite(Pener) ? `${Pener} €/kWh` : "–"}`
+                }
+              />
+
+
+              {/*<InfoRow label="Área total (m²)" value={fmt(m.area_m2, 1)}/>*/}
+
+
+            </>
+          )}
+          
+          {/*
+          {!buildingRef && !buildingMetricsLoading && !buildingMetricsError && (
+            <Typography variant="caption" color="text.secondary">
+              Selecciona un edificio en el mapa o con el buscador.
+            </Typography>
+          )}
+          */}
+        </Box>
+      </Section>
+
+      {/* ===== Certificados Energéticos ===== */}
+      <Section title="Certificados Energéticos" headerBg={colors.blueAccent[400]}>
+        {!buildingMetricsLoading && !buildingMetricsError && (
+          <Box>
+            <Box
+              sx={{
+                cursor: "pointer",
+                p: 0.5,
+                borderRadius: 1,
+                outline: isCo2Active ? "2px solid rgba(59,130,246,0.8)" : "2px solid transparent",
+              }}
+              onClick={() => onSelectCertificateMode?.("co2")}
+            >
+              <EnergyCertificate
+                title="Certificado Emisiones (CO₂)"
+                rating={m.certificadoCO2}
+                isEstimated={Number(m.certificadoCO2_es_estimado) === 1}
+                date={m.certificado_fecha_oficial}
+              />
+            </Box>
+
+            <Divider sx={{ my: 1 }} />
+
+            <Box
+              sx={{
+                cursor: "pointer",
+                p: 0.5,
+                borderRadius: 1,
+                outline: isNoRenovActive ? "2px solid rgba(59,130,246,0.8)" : "2px solid transparent",
+              }}
+              onClick={() => onSelectCertificateMode?.("norenov")}
+            >
+              <EnergyCertificate
+                title="Certificado de consumo (energía no renovable)"
+                rating={m.cal_norenov}
+                isEstimated={Number(m.cal_norenov_es_estimado) === 1}
+                date={m.certificado_fecha_oficial}
+              />
+            </Box>
+
+            {/* botón para apagar el modo */}
+            <Typography
+              variant="caption"
+              sx={{ display: "inline-block", mt: 0.5, cursor: "pointer", textDecoration: "underline" }}
+              onClick={() => onClearCertificateMode?.()}
+            >
+              Quitar coloreado de certificados
+            </Typography>
+          </Box>
+        )}
+        {(buildingMetricsLoading || buildingMetricsError) && (
+          <Typography
+            variant="caption"
+            color={buildingMetricsError ? "error" : "text.secondary"}
+          >
+            {buildingMetricsError || "Cargando certificados…"}
+          </Typography>
+        )}
       </Section>
     </Stack>
   );

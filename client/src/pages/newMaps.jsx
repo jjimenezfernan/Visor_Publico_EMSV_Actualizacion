@@ -28,12 +28,16 @@ import Grid from "@mui/material/Grid";
 import Stack from "@mui/material/Stack";
 import MapLoadingOverlay from "../components/PantallaCarga";
 
-const API_BASE = "http://127.0.0.1:8000";
+//const API_BASE = "http://127.0.0.1:8000
+
+const API_BASE = "https://visorpublicoemsvactualizado.khoraurbanthinkers.es/api_2";
+
 import { DIRECTION } from "../data/direccion_server";
 const EMSV_URL = `${DIRECTION}/api/visor_emsv`;
 import { useLayoutEffect } from "react";
 import RightLayerPanel from "../components/RightLayerPanel";
-
+import BuildingsCertificateLayer from "../components/BuildingsCertificateLayer";
+import CertificateLegend from "../components/CertificateLegend";
 
 
 // ---- leyenda irradiancia ----
@@ -56,8 +60,6 @@ const colorForIrr = (v) => {
   // si supera el último max, usamos el último color
   return IRR_BINS[IRR_BINS.length - 1].color;
 };
-
-
 
 
 function LegendIrr({ minZoom = 17, maxZoom = 19 }) {
@@ -115,19 +117,20 @@ const colorForShadowCount = (v) => {
 
 // ---------- helpers ----------
 
-async function fetchCELSHitsForGeometry(geom, radiusM = 500) {
-  const resp = await fetch(`${API_BASE}/cels/within?radius_m=${radiusM}`, {
+
+
+
+async function fetchCELSHitsForGeometryDynamic(geom) {
+  const resp = await fetch(`${API_BASE}/cels/within_dynamic`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ geometry: geom }),
   });
-  if (!resp.ok) {
-    const msg = await resp.text().catch(() => "");
-    throw new Error(`CELS HTTP ${resp.status}: ${msg}`);
-  }
+  if (!resp.ok) throw new Error(`CELS HTTP ${resp.status}`);
   const json = await resp.json();
   return json.cels || [];
 }
+
 
 
 const stripAccents = (s) => s.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
@@ -1229,7 +1232,14 @@ function AutoInvalidateOnResize({ observeRef }) {
   return null;
 }
 
-
+const colorForRadio = (r) => {
+  const v = Number(r);
+  if (!Number.isFinite(v)) return "#9ca3af";
+  if (v <= 500) return "#ff000062";
+  if (v <= 1000) return "#84cc16";
+  if (v <= 2000) return "#001aff81";
+  return "#001eff98";
+};
 
 function CelsBufferLayer({ radiusMeters = 1000 }) {
   const map = useMap();
@@ -1242,12 +1252,10 @@ function CelsBufferLayer({ radiusMeters = 1000 }) {
     if (!map.getPane(paneName)) {
       map.createPane(paneName);
       const p = map.getPane(paneName);
-      p.style.zIndex = 560;          
+      p.style.zIndex = 560;
       p.style.pointerEvents = "none";
     }
   }, [map]);
-
-
 
   useEffect(() => {
     if (!map) return;
@@ -1256,7 +1264,6 @@ function CelsBufferLayer({ radiusMeters = 1000 }) {
     const ac = new AbortController();
     abortRef.current = ac;
 
-    // Build the URL (you lost this in your last paste)
     const cityBBox = [-3.766250610351563, 40.279394708323274, -3.685398101806641, 40.32560453181949];
     const params = new URLSearchParams({ bbox: cityBBox.join(","), limit: "20000", offset: "0" });
     const url = `${API_BASE}/cels/features?${params}`;
@@ -1264,33 +1271,42 @@ function CelsBufferLayer({ radiusMeters = 1000 }) {
     (async () => {
       try {
         const res = await fetch(url, { signal: ac.signal });
-        if (!res.ok) return;
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = await res.json();
 
-        const group = L.layerGroup([], { pane: paneName });
+        const group = L.layerGroup(); // ✅ sin pane aquí
+
+        console.log("CELS features:", data.features?.length);
 
         (data.features || []).forEach((f) => {
           let lat, lng;
           if (f.geometry?.type === "Point") {
-            const [x, y] = f.geometry.coordinates; lng = x; lat = y;
+            const [x, y] = f.geometry.coordinates;
+            lng = x; lat = y;
           } else {
             const center = L.geoJSON(f.geometry).getBounds().getCenter();
             lat = center.lat; lng = center.lng;
           }
 
+          const radio = Number.isFinite(Number(f.properties?.radio))
+            ? Number(f.properties.radio)
+            : radiusMeters;
+
+          const base = colorForRadio(radio);
+
           const is2 = Number(f.properties?.auto_CEL) === 2;
           const stroke = is2 ? "#ef4444" : "#2563eb";
-          const fill   = is2 ? "#fecaca" : "#c7d2fe";
+          const weight = is2 ? 3 : 2;
 
           const ring = L.circle([lat, lng], {
-            radius: radiusMeters,
+            radius: radio,              // ✅ dinámico
             color: stroke,
-            weight: 2,
-            fillColor: fill,
+            weight,
+            fillColor: base,
             fillOpacity: 0.25,
             pane: paneName,
-            interactive: false,           
-            bubblingMouseEvents: false,   
+            interactive: false,
+            bubblingMouseEvents: false,
           });
 
           const dot = L.circleMarker([lat, lng], {
@@ -1304,13 +1320,14 @@ function CelsBufferLayer({ radiusMeters = 1000 }) {
             bubblingMouseEvents: false,
           });
 
-          group.addLayer(ring).addLayer(dot);
+          group.addLayer(ring);
+          group.addLayer(dot);
         });
 
         group.addTo(map);
-        // no bringToBack(); keep it visually on top but non-clickable
-        layerRef.current = group;
+        console.log("group layers:", group.getLayers().length);
 
+        layerRef.current = group;
       } catch (e) {
         if (e.name !== "AbortError") console.error("CELS fetch error:", e);
       }
@@ -1348,14 +1365,18 @@ function OverlayVisibilityBinder({ targetRef, onChange }) {
 
 export default function NewMap() {
 
+  const [certificateVisible, setCertificateVisible] = useState(false);
+
+
+  const [certMode, setCertMode] = useState(null);
 
   // Usa exactamente la misma lógica que ya tenías en el <SearchBoxEMSV /> inline
-  async function handleSearchBoxFeature(feature) {
-    // centrar/seleccionar
-    highlightSelectedFeature(mapRef.current, feature);
+  async function handleSearchBoxFeature({ feature, popupHtml, refcat }) {
+    highlightSelectedFeature(mapRef.current, feature, popupHtml);
 
-    // métricas del edificio
-    const ref = feature?.properties?.reference;
+    // AQUÍ: tu "reference" real en tu app es refcat
+    const ref = refcat || feature?.properties?.reference || feature?.properties?.refcat;
+
     setBRef(ref || null);
     setBMetrics(null);
     setBMetricsError("");
@@ -1372,7 +1393,7 @@ export default function NewMap() {
       }
     }
 
-    // sombras + CELS (igual que antes)
+    // sombras + CELS (igual que lo tienes)
     try {
       setBStatsError("");
       setBStatsLoading(true);
@@ -1394,25 +1415,20 @@ export default function NewMap() {
       setBStats(stats);
 
       // CELS
-      try {
-        setCelsHitsError("");
-        setCelsHitsLoading(true);
-        setCelsHits([]);
+      setCelsHitsError("");
+      setCelsHitsLoading(true);
+      setCelsHits([]);
 
-        const hits = await fetchCELSHitsForGeometry(geom, 500);
-        setCelsHits(hits);
-      } catch (e) {
-        console.error("Error fetching CELS for building:", e);
-        setCelsHitsError("No se pudo determinar qué CELS incluyen este edificio.");
-        setCelsHits([]);
-      } finally {
-        setCelsHitsLoading(false);
-      }
+      const hits = await fetchCELSHitsForGeometryDynamic(geom);
+      setCelsHits(hits);
     } catch (e) {
       console.error(e);
       setBStatsError("No se pudieron calcular las estadísticas de sombras para este edificio.");
+      setCelsHitsError("No se pudo determinar qué CELS incluyen este edificio.");
+      setCelsHits([]);
     } finally {
       setBStatsLoading(false);
+      setCelsHitsLoading(false);
     }
   }
 
@@ -1449,7 +1465,7 @@ export default function NewMap() {
 
   const [irradianceVisible, setIrradianceVisible] = useState(true); 
   const [celsVisible, setCelsVisible] = useState(true);
-  const [certificateVisible, setCertificateVisible] = useState(false);
+  
 
 
   const mapBoxRef = useRef(null);
@@ -1488,6 +1504,23 @@ export default function NewMap() {
   const [bStats, setBStats] = useState(null);
   const [bStatsLoading, setBStatsLoading] = useState(false);
   const [bStatsError, setBStatsError] = useState("");
+
+  const toggleCertificateMode = (mode) => {
+    setCertMode((prev) => (prev === mode ? null : mode));
+  };
+
+  useEffect(() => {
+    const certOn = Boolean(certMode);
+
+    if (certOn) {
+      setIrradianceVisible(false);
+      setCelsVisible(false);
+      setShadowsVisible(false); // opcional
+    } else {
+      setIrradianceVisible(true);
+      setCelsVisible(true);
+    }
+  }, [certMode]);
 
   async function fetchZonalStats(geometry) {
     const res = await fetch(`${API_BASE}/shadows/zonal`, {
@@ -1684,6 +1717,8 @@ export default function NewMap() {
       }
     }
 
+
+
   
     let geom = feature?.geometry ?? feature;
     if (geom?.type === "Point" && Array.isArray(geom.coordinates)) {
@@ -1718,7 +1753,7 @@ export default function NewMap() {
       setCelsHitsLoading(true);
       setCelsHits([]);
 
-      const hits = await fetchCELSHitsForGeometry(geom, 500);
+      const hits = await fetchCELSHitsForGeometryDynamic(geom);
       setCelsHits(hits);
     } catch (e) {
       console.error("Error fetching CELS for building:", e);
@@ -1775,7 +1810,7 @@ export default function NewMap() {
                   apiBase={API_BASE}
                   onLoadComplete={() => setBuildingsLoaded(true)}
                   onBuildingClick={handleBuildingClick}
-                  clickable={!shadowsVisible}
+                  clickable={!shadowsVisible && !(certificateVisible && certMode)}
                 />
                 <BindMapRef mapRef={mapRef} />
                 <SetupLimitPanes />
@@ -1789,6 +1824,7 @@ export default function NewMap() {
                   zIndex={0}
                 />
 
+                <CertificateLegend visible={certificateVisible && !!certMode} mode={certMode} />
 
                 {/* 
                 {irradianceVisible && (
@@ -1802,13 +1838,8 @@ export default function NewMap() {
 
 
 
-                {celsVisible && <CelsBufferLayer radiusMeters={500} />}
+                {celsVisible && <CelsBufferLayer radiusMeters={2000} />}
                 
-                {certificateVisible && (
-                // TODO: sustituye por tu capa real de certificados
-                null
-                )}
-
                 {geoLimites && (
                   <LayerGeoJSON
                     fc={geoLimites}
@@ -1826,6 +1857,17 @@ export default function NewMap() {
                     }}
                   />
                 )}
+
+                {certificateVisible && certMode && (
+                  <BuildingsCertificateLayer
+                    bbox={bbox}
+                    mode={certMode}               // "co2" o "norenov"
+                    apiBase={API_BASE}
+                    onBuildingClick={handleBuildingClick}
+                  />
+                )}
+
+
               </MapContainer>
             </Box>
           </Grid>
@@ -1837,13 +1879,33 @@ export default function NewMap() {
                 irradianceOn={irradianceVisible}
                 celsOn={celsVisible}
                 certificateOn={certificateVisible}
+                certMode={certMode}
+                onSelectCertificateMode={(mode) => {
+                  if (!certificateVisible) setCertificateVisible(true);
+                  setCertMode(mode);
+                }}
+                onClearCertificateMode={() => setCertMode(null)}
                 zoom={mapRef.current?.getZoom?.() ?? 0}
                 celsHits={celsHits}
                 celsHitsLoading={celsHitsLoading}
                 celsHitsError={celsHitsError}
                 onToggleIrradiance={() => setIrradianceVisible(v => !v)}
                 onToggleCELS={() => setCelsVisible(v => !v)}
-                onToggleCertificate={() => setCertificateVisible(v => !v)}
+                onToggleCertificate={() => {
+                  setCertificateVisible(v => {
+                    const next = !v;
+                    if (next) {
+                      setIrradianceVisible(false);
+                      setCelsVisible(false);
+                      setShadowsVisible(false);
+                      // si no hay modo aún, puedes dejar uno por defecto:
+                      setCertMode(prev => prev || "co2");
+                    } else {
+                      setCertMode(null);
+                    }
+                    return next;
+                  });
+                }}
                 onJumpToIrradianceZoom={() => {
                   const z = mapRef.current?.getZoom?.() ?? 0;
                   const target = z < 17 ? 17 : z > 18 ? 18 : z;
@@ -1860,7 +1922,7 @@ export default function NewMap() {
                 searchLoading={loadingEmsv}
                 searchApiBase={API_BASE}
                 onSearchFeature={handleSearchBoxFeature}
-                onSearchReset={handleSearchBoxReset}
+                onSearchReset={handleSearchBoxReset}                
               />
 
 

@@ -3,7 +3,7 @@ from __future__ import annotations
 import os, json, duckdb, unicodedata
 from typing import List, Tuple
 
-from fastapi import FastAPI, HTTPException, Query, Depends
+from fastapi import FastAPI, HTTPException, Query, Depends, APIRouter
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from dotenv import load_dotenv
@@ -25,15 +25,10 @@ DB_PATH = _resolve_db_path()
 READ_ONLY = os.getenv("READ_ONLY", "true").lower() in ("1", "true", "yes")
 
 app = FastAPI(title=f"EMSV API ({'RO' if READ_ONLY else 'RW'})")
-
+api = APIRouter(prefix="/api_2") 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:5173",
-        "http://localhost:5174",
-        "http://127.0.0.1:5173",
-        "http://127.0.0.1:5174",
-    ],
+    allow_origins=["*"],
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -382,7 +377,7 @@ def buildings_metrics(reference: str, con: duckdb.DuckDBPyConnection = Depends(g
     rows = q(con, """
         SELECT reference,
                irr_average, area_m2, superficie_util_m2, pot_kWp,
-               energy_total_kWh, factor_capacidad_pct, irr_mean_kWhm2_y
+               energy_total_kWh, factor_capacidad_pct, irr_mean_kWhm2_y,reduccion_emisiones, ahorro_eur, certificadoCO2, cal_norenov, certificadoCO2_es_estimado, cal_norenov_es_estimado
         FROM edificios_metrics WHERE UPPER(reference)=UPPER(?) LIMIT 1;
     """, [ref])
     if not rows:
@@ -398,6 +393,12 @@ def buildings_metrics(reference: str, con: duckdb.DuckDBPyConnection = Depends(g
             "energy_total_kWh": float(r[5]) if r[5] is not None else None,
             "factor_capacidad_pct": float(r[6]) if r[6] is not None else None,
             "irr_mean_kWhm2_y": float(r[7]) if r[7] is not None else None,
+            "reduccion_emisiones": float(r[8]) if r[8] is not None else None,
+            "ahorro_eur": float(r[9]) if r[9] is not None else None,
+            "certificadoCO2": float(r[10]) if r[10] is not None else None,
+            "cal_norenov": float(r[11]) if r[11] is not None else None,
+            "certificadoCO2_es_estimado": float(r[12]) if r[12] is not None else None,
+            "cal_norenov_es_estimado": float(r[13]) if r[13] is not None else None,
         },
     }
 
