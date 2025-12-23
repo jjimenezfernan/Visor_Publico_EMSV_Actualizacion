@@ -342,7 +342,7 @@ const ahorroEstimado =
     <Stack spacing={1.5} sx={{ fontFamily: theme.typography.fontFamily }}>
        {/* === Buscador de Direcciones === */}
       <Section
-        headerBg={colors.blueAccent[400]}
+        headerBg="#DF9A32"
         title="Buscador de Direcciones"
         noPaper
       >
@@ -356,7 +356,7 @@ const ahorroEstimado =
       </Section>
       {/* ===== CELS ===== */}
       <Section 
-        headerBg={colors.blueAccent[400]}
+        headerBg="#DF9A32"
         title={
           <Box sx={{ display: "flex", alignItems: "center", width: "100%" }}>
             <Typography variant="h6" fontWeight={600} sx={{ fontSize: 16, lineHeight: 1.2 }}>
@@ -502,7 +502,7 @@ const ahorroEstimado =
       </Section>
       {/* ===== IRRADIANCIA (no accordion) ===== */}
       <Section
-        headerBg={colors.blueAccent[400]}
+        headerBg="#DF9A32"
         title={
           <Box sx={{ display: "flex", alignItems: "center", width: "100%" }}>
             <Typography variant="h6" fontWeight={600} sx={{ fontSize: 16, lineHeight: 1.2 }}>
@@ -637,7 +637,7 @@ const ahorroEstimado =
       </Section>
 
       {/* ===== Certificados Energéticos ===== */}
-      <Section title="Certificados Energéticos" headerBg={colors.blueAccent[400]}>
+      <Section title="Certificados Energéticos" headerBg="#DF9A32">
         {!buildingMetricsLoading && !buildingMetricsError && (
           <Box>
             <Box

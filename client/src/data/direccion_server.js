@@ -3,7 +3,7 @@
 let DIRECTION;
 
 if (process.env.NODE_ENV === 'production') {
-    DIRECTION = 'https://visorpublicoemsv.khoraurbanthinkers.es';
+    DIRECTION = 'https://visorpublicoemsvactualizado.khoraurbanthinkers.es';
 } else {
     DIRECTION = 'http://localhost:3040';
 }

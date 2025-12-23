@@ -1,32 +1,27 @@
-/*
-Fichero que se encarga de la gestión de las rutas de la aplicación y carga de los componentes principales.
-*/
-
 import { useState } from "react";
 import { ColorModeContext, useMode } from "./data/theme";
 import { CssBaseline, ThemeProvider } from "@mui/material";
 import { Routes, Route, useLocation } from "react-router-dom";
+import { AnimatePresence } from "framer-motion";
+
+import Overlay from "./global_components/Overlay";
+
 import VisorEMSV from "./pages/VisorEMSV";
-import UpBar from "./global_components/UpBar";
-import Footer from "./global_components/Footer";
-import SideBar from "./global_components/SideBar";
+import MapasExtra from "./pages/newMaps";
+
 import MapEMSVProvider from "./components/MapEMSVProvider";
 import MapZoomProvider from "./components/MapZoomProvider";
 import MapTypeSelectProvider from "./components/MapTypeSelectProvider";
-import Overlay from "./global_components/Overlay";
-import { AnimatePresence } from "framer-motion";
-import MapasExtra from "./pages/newMaps";
+
+import LayoutDefault from "./global_components/LayoutDefault";
+import LayoutMapas from "./global_components/LayoutMapas";
 
 function App() {
   const [theme, colorMode] = useMode();
   const location = useLocation();
-  const [showOverlay, setShowOverlay] = useState(true); // Initially show overlay
+  const [showOverlay, setShowOverlay] = useState(true);
 
-  const closeOverlay = () => {
-    setShowOverlay(false);
-  };
-
-  // Check if the user is on the home page ("/") and showOverlay is true
+  const closeOverlay = () => setShowOverlay(false);
   const shouldShowOverlay = showOverlay && location.pathname === "/";
 
   return (
@@ -34,42 +29,42 @@ function App() {
       <ColorModeContext.Provider value={colorMode}>
         <ThemeProvider theme={theme}>
           <CssBaseline />
-          <div className="app">
-            {shouldShowOverlay && <Overlay closeOverlay={closeOverlay} />}
-            <SideBar />
-            <main className="content">
-              <UpBar /> {/* <Bottom bar acts as topbar now /> */}
-              <div className="map_footer"> {/* <div> tag added to fix footer position */}
-                <Routes location={location} key={location.pathname}>
-                  <Route
-                    path="/"
-                    element={
-                      <MapEMSVProvider>
-                        <MapZoomProvider>
-                          <MapTypeSelectProvider>
-                            <VisorEMSV />
-                          </MapTypeSelectProvider>
-                        </MapZoomProvider>
-                      </MapEMSVProvider>
-                    }
-                  />
-                  <Route
-                      path="/mapas"
-                      element={
-                        <MapEMSVProvider>
-                          <MapZoomProvider>
-                            <MapTypeSelectProvider>
-                              <MapasExtra />
-                            </MapTypeSelectProvider>
-                          </MapZoomProvider>
-                        </MapEMSVProvider>
-                      }
-                    />
-                </Routes>
-                <Footer />
-              </div>
-            </main>
-          </div>
+
+          {shouldShowOverlay && <Overlay closeOverlay={closeOverlay} />}
+
+          <Routes location={location} key={location.pathname}>
+            {/* Layout normal */}
+            <Route element={<LayoutDefault />}>
+              <Route
+                path="/"
+                element={
+                  <MapEMSVProvider>
+                    <MapZoomProvider>
+                      <MapTypeSelectProvider>
+                        <VisorEMSV />
+                      </MapTypeSelectProvider>
+                    </MapZoomProvider>
+                  </MapEMSVProvider>
+                }
+              />
+            </Route>
+
+            {/* Layout mapas (UpBar amarillo + logos) */}
+            <Route element={<LayoutMapas />}>
+              <Route
+                path="/mapas"
+                element={
+                  <MapEMSVProvider>
+                    <MapZoomProvider>
+                      <MapTypeSelectProvider>
+                        <MapasExtra />
+                      </MapTypeSelectProvider>
+                    </MapZoomProvider>
+                  </MapEMSVProvider>
+                }
+              />
+            </Route>
+          </Routes>
         </ThemeProvider>
       </ColorModeContext.Provider>
     </AnimatePresence>

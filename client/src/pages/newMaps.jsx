@@ -27,6 +27,7 @@ import AdditionalPanel from "../components/AdditionalPanel";
 import Grid from "@mui/material/Grid";
 import Stack from "@mui/material/Stack";
 import MapLoadingOverlay from "../components/PantallaCarga";
+import SubUpBarColor from "../global_components/SubUpBarColor"
 
 //const API_BASE = "http://127.0.0.1:8000
 
@@ -771,15 +772,7 @@ function IrrZonalDrawControl({ onStats }) {
       const stats = await res.json();
       if (onStats) onStats(stats);
       const ll = layer.getBounds ? layer.getBounds().getCenter() : map.getCenter();
-      L.popup()
-        .setLatLng(ll)
-        .setContent(`
-          <b>Irradiancia en el área</b><br/>
-          Elementos: ${stats.count}<br/>
-          Media: ${stats.avg?.toFixed(1) ?? "–"} kWh/m²·año<br/>
-          Mín: ${stats.min?.toFixed(1) ?? "–"} · Máx: ${stats.max?.toFixed(1) ?? "–"}
-        `)
-        .openOn(map);
+
     };
 
     map.on(L.Draw.Event.CREATED, onCreated);
@@ -1012,15 +1005,7 @@ function ZonalDrawControl({ onStats }) {
       const stats = await res.json();
       if (onStats) onStats(stats);
       const ll = layer.getBounds ? layer.getBounds().getCenter() : map.getCenter();
-      L.popup()
-        .setLatLng(ll)
-        .setContent(`
-          <b>Estadísticas del área</b><br/>
-          Elementos: ${stats.count}<br/>
-          Media: ${stats.avg?.toFixed(2) ?? "–"} h<br/>
-          Mín: ${stats.min?.toFixed(2) ?? "–"} h · Máx: ${stats.max?.toFixed(2) ?? "–"} h
-        `)
-        .openOn(map);
+
     };
     map.on(L.Draw.Event.CREATED, onCreated);
     return () => {
@@ -1363,6 +1348,8 @@ function OverlayVisibilityBinder({ targetRef, onChange }) {
   return null;
 }
 
+
+
 export default function NewMap() {
 
   const [certificateVisible, setCertificateVisible] = useState(false);
@@ -1370,67 +1357,140 @@ export default function NewMap() {
 
   const [certMode, setCertMode] = useState(null);
 
-  // Usa exactamente la misma lógica que ya tenías en el <SearchBoxEMSV /> inline
-  async function handleSearchBoxFeature({ feature, popupHtml, refcat }) {
-    highlightSelectedFeature(mapRef.current, feature, popupHtml);
 
-    // AQUÍ: tu "reference" real en tu app es refcat
-    const ref = refcat || feature?.properties?.reference || feature?.properties?.refcat;
 
-    setBRef(ref || null);
-    setBMetrics(null);
-    setBMetricsError("");
-    setBMetricsLoading(!!ref);
 
-    if (ref) {
-      try {
-        const { metrics } = await fetchBuildingMetricsByRef(ref);
-        setBMetrics(metrics);
-      } catch (e) {
-        setBMetricsError(e.message || "No se pudieron cargar las métricas.");
-      } finally {
-        setBMetricsLoading(false);
-      }
-    }
-
-    // sombras + CELS (igual que lo tienes)
-    try {
-      setBStatsError("");
-      setBStatsLoading(true);
-      setBStats(null);
-
-      let geom = feature?.geometry ?? feature;
-      if (geom?.type === "Point" && Array.isArray(geom.coordinates)) {
-        const [x, y] = geom.coordinates;
-        const circle = turf.circle([x, y], 8, { units: "meters", steps: 48 });
-        geom = circle.geometry;
-      }
-
-      const stats = await fetch(`${API_BASE}/shadows/zonal`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ geometry: geom }),
-      }).then(r => r.json());
-
-      setBStats(stats);
-
-      // CELS
-      setCelsHitsError("");
-      setCelsHitsLoading(true);
-      setCelsHits([]);
-
-      const hits = await fetchCELSHitsForGeometryDynamic(geom);
-      setCelsHits(hits);
-    } catch (e) {
-      console.error(e);
-      setBStatsError("No se pudieron calcular las estadísticas de sombras para este edificio.");
-      setCelsHitsError("No se pudo determinar qué CELS incluyen este edificio.");
-      setCelsHits([]);
-    } finally {
-      setBStatsLoading(false);
-      setCelsHitsLoading(false);
-    }
+  async function fetchBuildingFeatureByRef(ref) {
+    const res = await fetch(`${API_BASE}/buildings/by_ref?ref=${encodeURIComponent(ref)}`);
+    if (!res.ok) throw new Error(`No building geometry for ${ref} (HTTP ${res.status})`);
+    return await res.json(); // ya es Feature
   }
+
+
+
+  function ensurePolygonGeom(geom) {
+    if (!geom) return null;
+
+    // Si llega Feature, saca geometry
+    const g = geom.type === "Feature" ? geom.geometry : geom;
+
+    // Si es Point, lo convertimos a un círculo (para no fallar)
+    if (g?.type === "Point" && Array.isArray(g.coordinates)) {
+      const [x, y] = g.coordinates;
+      return turf.circle([x, y], 12, { units: "meters", steps: 48 }).geometry; // 12m mejor que 8m
+    }
+
+    return g;
+  }
+
+    async function handleSearchBoxFeature(arg1, arg2, arg3) {
+      // Soporta:
+      // 1) handleSearchBoxFeature({ feature, popupHtml, refcat })
+      // 2) handleSearchBoxFeature(feature, popupHtml, refcat)
+      // 3) handleSearchBoxFeature(feature)
+      let feature, popupHtml, refcat;
+
+      if (arg1 && (arg1.type === "Feature" || arg1.geometry)) {
+        // Formato (feature, popupHtml, refcat)
+        feature = arg1;
+        popupHtml = arg2 ?? null;
+        refcat = arg3 ?? null;
+      } else {
+        // Formato ({ feature, popupHtml, refcat })
+        feature = arg1?.feature ?? null;
+        popupHtml = arg1?.popupHtml ?? null;
+        refcat = arg1?.refcat ?? null;
+      }
+
+      if (!feature) return;
+
+      // --- tu lógica actual ---
+      highlightSelectedFeature(mapRef.current, feature, null);
+
+      const ref =
+        refcat ||
+        feature?.properties?.reference ||
+        feature?.properties?.refcat;
+
+      setBRef(ref || null);
+
+      let buildingFeature = feature;
+      if (ref) {
+        try {
+          buildingFeature = await fetchBuildingFeatureByRef(ref);
+          const realRef = buildingFeature?.properties?.reference || ref;
+          setBRef(realRef);
+          highlightSelectedFeature(mapRef.current, buildingFeature, null);
+        } catch (e) {
+          console.warn("No pude cargar polígono real, uso feature original:", e);
+        }
+      }
+
+      // OJO: aquí usa realRef si existe (ver arreglo 2)
+      setBMetrics(null);
+      setBMetricsError("");
+      setBMetricsLoading(!!ref);
+
+      if (ref) {
+        try {
+          const { metrics } = await fetchBuildingMetricsByRef(ref);
+          setBMetrics(metrics);
+        } catch (e) {
+          setBMetricsError(e.message || "No se pudieron cargar las métricas.");
+        } finally {
+          setBMetricsLoading(false);
+        }
+      }
+
+      const geom = ensurePolygonGeom(buildingFeature);
+
+      if (!geom) {
+        setCelsHitsError("Geometría no válida para consultar CELS.");
+        setCelsHitsLoading(false);
+        setBStatsError("Geometría no válida para calcular sombras.");
+        setBStatsLoading(false);
+        return;
+      }
+
+      // === 1. Shadows stats (independent) ===
+      try {
+        setBStatsError("");
+        setBStatsLoading(true);
+        setBStats(null);
+
+        const stats = await fetch(`${API_BASE}/shadows/zonal`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ geometry: geom }),
+        }).then(r => r.json());
+
+        setBStats(stats);
+      } catch (e) {
+        console.error("Shadow stats error:", e);
+        setBStatsError("No se pudieron calcular las estadísticas de sombras para este edificio.");
+      } finally {
+        setBStatsLoading(false);
+      }
+
+      // === 2. CELS query (completely independent) ===
+      try {
+        setCelsHitsError("");
+        setCelsHitsLoading(true);
+        setCelsHits([]);
+
+        console.log("Calling CELS /within_dynamic with geom:", geom); // ← debug line
+
+        const hits = await fetchCELSHitsForGeometryDynamic(geom);
+        setCelsHits(hits);
+      } catch (celsError) {
+        console.error("CELS fetch error:", celsError);
+        setCelsHitsError("No se pudo determinar qué CELS incluyen este edificio.");
+        setCelsHits([]);
+      } finally {
+        setCelsHitsLoading(false);
+      }
+    }
+
 
   function handleSearchBoxReset() {
     clearSelectionAndPopup();
@@ -1594,7 +1654,7 @@ export default function NewMap() {
     }
   }
 
-  function highlightSelectedFeature(map, feature, popupHtml) {
+  function highlightSelectedFeature(map, feature, popupHtml = false) {
     if (!map || !feature) return;
 
     if (!map.getPane("selection")) {
@@ -1623,13 +1683,7 @@ export default function NewMap() {
       if (b && b.isValid()) map.fitBounds(b.pad(0.4));
     }
 
-    if (popupHtml) {
-      const center =
-        (g?.type === "Point" && Array.isArray(g.coordinates))
-          ? L.latLng(g.coordinates[1], g.coordinates[0])
-          : (lyr.getBounds?.().getCenter?.());
-      if (center) L.popup().setLatLng(center).setContent(popupHtml).openOn(map);
-    }
+
   }
 
 
@@ -1676,7 +1730,11 @@ export default function NewMap() {
         console.log("first CELS point:", f0.geometry);
       }
       const feature = data.feature;
-      highlightSelectedFeature(mapRef.current, feature);
+      await handleSearchBoxFeature({
+        feature,
+        popupHtml: null,
+        refcat: data.refcat || data.reference || feature?.properties?.reference || feature?.properties?.refcat
+      });
     } catch (e) {
       console.error(e);
       setSearchError("No se pudo buscar la dirección.");
@@ -1699,8 +1757,10 @@ export default function NewMap() {
   ];
 
   const handleBuildingClick = async (feature) => {
-    highlightSelectedFeature(mapRef.current, feature);
-    const reference = feature?.properties?.reference;
+    highlightSelectedFeature(mapRef.current, feature, null);
+
+    const reference = feature?.properties?.reference || feature?.properties?.refcat;
+
     setBRef(reference || null);
     setBMetrics(null);
     setBMetricsError("");
@@ -1728,35 +1788,33 @@ export default function NewMap() {
     }
 
     // 1) sombras (igual que antes)
+    // Fetch shadows
     try {
       setBStatsError("");
       setBStatsLoading(true);
       setBStats(null);
-
       const stats = await fetch(`${API_BASE}/shadows/zonal`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ geometry: geom }),
       }).then(r => r.json());
-
       setBStats(stats);
     } catch (e) {
-      console.error(e);
+      console.error("Shadow stats error:", e);
       setBStatsError("No se pudieron calcular las estadísticas de sombras para este edificio.");
     } finally {
       setBStatsLoading(false);
     }
 
-    // 2) CELS — usa el helper y NO /cels/within-building
+    // Fetch CELS independently
     try {
       setCelsHitsError("");
       setCelsHitsLoading(true);
       setCelsHits([]);
-
       const hits = await fetchCELSHitsForGeometryDynamic(geom);
       setCelsHits(hits);
-    } catch (e) {
-      console.error("Error fetching CELS for building:", e);
+    } catch (celsError) {
+      console.error("CELS fetch error:", celsError);
       setCelsHitsError("No se pudo determinar qué CELS incluyen este edificio.");
       setCelsHits([]);
     } finally {
@@ -1775,10 +1833,12 @@ export default function NewMap() {
 
   return (
     <>
-      <SubUpBar
-        title={"Visor de Datos Públicos de Vivienda"}
+      <SubUpBarColor
+        title={"Visor de datos públicos de potencial fotovoltaico y comunidades energéticas"}
         crumbs={[["Inicio", "/"], ["Visor EPIU", "/visor-epiu"]]}
-        info={{ title: "Visor de Datos Públicos de Vivienda", description: (<Typography />) }}
+        info={{ title: "Visor de datos públicos de potencial fotovoltaico y comunidades energéticas", description: (<Typography />) }}
+        bgColor="#F0BE00"
+        borderColor="#F0BE00"
       />
       <Box m="10px">
         <Grid container spacing={2} alignItems="stretch">
