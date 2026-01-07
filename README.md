@@ -24,23 +24,22 @@ El visor público comparte el mismo backend a través del servicio Docker:
 No existe un backend independiente del visor público.
 
 ### Tecnologías Utilizadas
-Frontend:
+**Frontend:**
 - React + MUI
 - React-Leaflet
 - Nivo Charts
 
-Backend compartido:
+**Backend compartido:**
 - FastAPI + DuckDB
 - Consultas espaciales
 - API de solo lectura para el público
 
-Infraestructura:
+**Infraestructura:**
 - Docker + Docker Compose
 - Nginx como reverse proxy HTTPS
 
 ### Ejecución en Local
-
-Frontend
+**Frontend**
 - Desarrollo:
   npm install
   npm run dev
@@ -51,7 +50,6 @@ La API no se ejecuta desde esta carpeta:
 se sirve desde el backend compartido en Docker.
 
 ### Despliegue en Producción
-
 1) Compilar frontend:
    npm run build
 
