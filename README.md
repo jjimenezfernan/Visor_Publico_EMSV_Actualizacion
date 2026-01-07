@@ -1,5 +1,5 @@
-# Visor_Publico_EMSV
-Repositorio que contiene el código desarrollado, a partir del Visor del Observatorio de EPIU, para el visor de publico de la EMSV
+# Visor_Publico_EMSV_actualizado
+Repositorio que contiene el código del visor público de la EMSV. El proyecto ha sido migrado desde la arquitectura original (Node.js + servidor manual) a una infraestructura basada en 
 
 ### Índice
 - [Organización de los Directorios del Proyecto](#organización-de-los-directorios-del-proyecto)
@@ -7,6 +7,20 @@ Repositorio que contiene el código desarrollado, a partir del Visor del Observa
 
 ### Organización de los Directorios del Proyecto
 Explicacion de los diferentes dirrectorios del proyecto:
+visor_publico/
+ ├─ visor_publico_emsv_client_actualizado/   → build del frontend React
+ ├─ Dockerfile.frontend                      → imagen del frontend Nginx
+ ├─ nginx_conf_publico/                      → configuraciones históricas (no activas)
+ └─ server/                                  → carpeta heredada (no utilizada)
+
+El visor público comparte el mismo backend
+a través del servicio Docker:
+
+- backend-privado (lectura / escritura privada)
+- gateway (lectura pública controlada)
+
+No existe un backend independiente del visor público.
+
 - **[client](/client/)**, código desarrollado en el FrameWork React para la página web.
 - **[server](/server/)**, código desarrollado en node.js para la API de la página web.
 - **[visor_publico_emsv_nginx_node_server](/visor_publico_emsv_nginx_node_server/)**, diferentes archivos de configuración para el despligue de la página web en kutone. 
