@@ -8,7 +8,9 @@ Repositorio que contiene el código del visor público de la EMSV. El proyecto h
 ### Organización de los Directorios del Proyecto
 Explicacion de los diferentes dirrectorios del proyecto:
 
-visor_publico/
+visor_publico_emsv_actualizacion/
+- **[visor_publico_emsv_client_actualizado](/clienvisor_publico_emsv_client_actualizadot/)**, build del frontend React.
+- **[Dockerfile.frontend ](/Dockerfile.frontend/)**, magen del frontend Nginx.
  ├─ visor_publico_emsv_client_actualizado/   → build del frontend React
  ├─ Dockerfile.frontend                      → imagen del frontend Nginx
  ├─ nginx_conf_publico/                      → configuraciones históricas (no activas)
