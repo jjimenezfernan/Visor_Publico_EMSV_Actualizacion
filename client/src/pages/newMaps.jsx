@@ -1,29 +1,19 @@
 // newMap.jsx
 import { useEffect, useMemo, useRef, useState } from "react";
-import { MapContainer, TileLayer, useMap, LayersControl, LayerGroup } from "react-leaflet";
+import { MapContainer, TileLayer, useMap } from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
-import SubUpBar from "../global_components/SubUpBar";
 import {
   Box,
   Typography,
-  Paper,
-  TextField,
-  Button,
-  Alert,
-  CircularProgress,
   useTheme,
-  Select,
-  Autocomplete
 } from "@mui/material";
 
 import "leaflet-draw/dist/leaflet.draw.css";
 import "leaflet-draw";
 import * as turf from "@turf/turf";
-
 import { tokens } from "../data/theme";
 import StaticBuildingsLayer from "../components/BuildingsLayer";
-import AdditionalPanel from "../components/AdditionalPanel";
 import Grid from "@mui/material/Grid";
 import Stack from "@mui/material/Stack";
 import MapLoadingOverlay from "../components/PantallaCarga";
@@ -117,10 +107,6 @@ const colorForShadowCount = (v) => {
 
 
 // ---------- helpers ----------
-
-
-
-
 async function fetchCELSHitsForGeometryDynamic(geom) {
   const resp = await fetch(`${API_BASE}/cels/within_dynamic`, {
     method: "POST",
@@ -133,9 +119,6 @@ async function fetchCELSHitsForGeometryDynamic(geom) {
 }
 
 
-
-const stripAccents = (s) => s.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
-const norm = (s) => stripAccents(String(s ?? "")).toUpperCase().replace(/\s+/g, " ").trim();
 
 function BboxWatcher({ onBboxChange }) {
   const map = useMap();
@@ -155,174 +138,6 @@ function BboxWatcher({ onBboxChange }) {
   }, [map, onBboxChange]);
   return null;
 }
-
-// Leyenda (no bloquea clics y no tapa el LayersControl)
-function Legend({ minZoom = 17, maxZoom = 18 }) {
-  const map = useMap();
-  const [visible, setVisible] = useState(false);
-
-  useEffect(() => {
-    if (!map) return;
-    const check = () => {
-      const z = map.getZoom();
-      setVisible(z >= minZoom && z <= maxZoom);
-    };
-    map.on("zoomend", check);
-    check();
-    return () => map.off("zoomend", check);
-  }, [map, minZoom, maxZoom]);
-
-  if (!visible) return null;
-
-  return (
-    <div style={{
-      position: "absolute",
-      right: 12,
-      bottom: 76,             
-      zIndex: 500,            
-      pointerEvents: "none",  
-      background: "white",
-      padding: "8px 10px",
-      borderRadius: 8,
-      boxShadow: "0 2px 8px rgba(0,0,0,0.15)",
-      font: "12px system-ui"
-    }}>
-      <div style={{ fontWeight: 600, marginBottom: 6 }}>Horas de sombra</div>
-      {BINS.map((b, i) => (
-        <div key={i} style={{ display: "flex", alignItems: "center", margin: "2px 0" }}>
-          <span style={{
-            display: "inline-block", width: 12, height: 12, borderRadius: 9999,
-            background: b.color, marginRight: 8, border: "1px solid #999"
-          }} />
-          <span>{b.min} – {b.max} h</span>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-// Indicador de zoom (lo conservas si lo necesitas)
-function ZoomStatus({ minZoom = 17, maxZoom = 18 }) {
-  const map = useMap();
-  const [z, setZ] = useState(() => map?.getZoom?.() ?? 0);
-
-  useEffect(() => {
-    if (!map) return;
-    const update = () => setZ(map.getZoom());
-    map.on("zoomend", update);
-    update();
-    return () => map.off("zoomend", update);
-  }, [map]);
-
-  const inRange = z >= minZoom && z <= maxZoom;
-  const needText =
-    z < minZoom
-      ? `Acércate ${minZoom - z} nivel${minZoom - z === 1 ? "" : "es"} para ver sombras`
-      : z > maxZoom
-      ? `Aléjate ${z - maxZoom} nivel${z - maxZoom === 1 ? "" : "es"} para ver sombras`
-      : "Sombras activas en este zoom";
-
-  const targetZoom = z < minZoom ? minZoom : z > maxZoom ? maxZoom : z;
-  const badgeBg = inRange ? "#10b981" : "#f59e0b";
-
-  return (
-    <div
-      style={{
-        position: "absolute",
-        top: 12,
-        right: 12,
-        zIndex: 1000,
-        display: "flex",
-        flexDirection: "column",
-        alignItems: "flex-end",
-        gap: 8,
-      }}
-    >
-      <div
-        style={{
-          background: "white",
-          borderRadius: 8,
-          boxShadow: "0 2px 8px rgba(0,0,0,0.15)",
-          padding: "6px 10px",
-          font: "12px system-ui",
-          display: "flex",
-          alignItems: "center",
-          gap: 8,
-          minWidth: 90,
-          justifyContent: "flex-end",
-        }}
-      >
-        <span
-          style={{
-            display: "inline-block",
-            width: 10,
-            height: 10,
-            borderRadius: 9999,
-            background: badgeBg,
-          }}
-        />
-        <strong>Zoom:</strong> {z}
-      </div>
-
-      <div
-        style={{
-          background: "white",
-          borderRadius: 8,
-          boxShadow: "0 2px 8px rgba(0,0,0,0.15)",
-          padding: "8px 10px",
-          font: "12px system-ui",
-          textAlign: "right",
-          maxWidth: 230,
-        }}
-      >
-        <div style={{ fontWeight: 600, marginBottom: 4 }}>Sombras</div>
-        <div style={{ marginBottom: inRange ? 0 : 6 }}>
-          {inRange ? "Sombras activas (niveles 17–18)." : needText}
-        </div>
-        {!inRange && (
-          <button
-            onClick={() =>
-              map.flyTo(map.getCenter(), targetZoom, { duration: 0.6 })
-            }
-            style={{
-              border: "none",
-              background: "#3b82f6",
-              color: "white",
-              borderRadius: 6,
-              padding: "6px 10px",
-              cursor: "pointer",
-            }}
-          >
-            Ir a zoom {targetZoom}
-          </button>
-        )}
-      </div>
-    </div>
-  );
-}
-
-
-
-
-
-
-const fetchAllPages = async (signal, onBatch) => {
-  let offset = 0;
-  while (!signal.aborted) {
-    const params = new URLSearchParams(paramsBase);
-    params.set("offset", String(offset));
-    const res = await fetch(`${API_BASE}/irradiance/features?${params}`, { signal });
-    if (!res.ok) break;
-    const fc = await res.json();
-    const feats = fc?.features || [];
-    if (!feats.length) break;
-    onBatch(feats);
-    offset += feats.length;
-    if (feats.length < PAGE_LIMIT) break; // last page
-    // yield to main thread
-    await new Promise(r => setTimeout(r, CHUNK_DELAY));
-  }
-};
 
 
 
@@ -668,50 +483,6 @@ function BuildingIrradianceLayer({ bbox, onLegendChange,onBuildingClick  }) {
   return null;
 }
 
-/* LEYENDA IDEALISTA
-function ZoomAwareIrradiance({ bbox }) {
-  const zoom = useMapZoom();
-  const [legendBins, setLegendBins] = useState(null);
-
-  const showBldg = zoom >= 17 && zoom <= 18;
-  const showPts  = zoom >= 19;
-
-  // helpers para etiquetas
-  const minVal = legendBins?.[0]?.min;
-  const maxVal = legendBins?.[legendBins.length-1]?.max;
-  const colors = legendBins?.map(b => b.color) ?? [];
-
-  return (
-    <>
-      {showPts && bbox && (
-        <>
-          <IrradianceLayer bbox={bbox} minZoom={19} maxZoom={19} />
-          <LegendIrr minZoom={19} maxZoom={19} />
-        </>
-      )}
-
-      {showBldg && bbox && (
-        <>
-          <BuildingIrradianceLayer bbox={bbox} onLegendChange={setLegendBins} />
-          
-
-          {legendBins?.length ? (
-            <TopCenterLegend
-              bins={legendBins}
-              colors={colors}                 // explícito (opcional; con bins basta)
-              leftLabel={`${minVal?.toFixed(0)} kWh/m²·año`}
-              rightLabel={`${maxVal?.toFixed(0)} kWh/m²·año`}
-              top={10}                        // ajústalo si tienes una topbar
-              width={360}                     // anchura de la barra
-              height={12}                     // altura de la barra
-            />
-          ) : null}
-        </>
-      )}
-    </>
-  );
-}
-*/
 
 function ZoomAwareIrradiance({ bbox, pointsOn=true, onBuildingClick }) {
   const zoom = useMapZoom();
@@ -740,296 +511,6 @@ function ZoomAwareIrradiance({ bbox, pointsOn=true, onBuildingClick }) {
   );
 }
 
-
-function IrrZonalDrawControl({ onStats }) {
-  const map = useMap();
-  const controlRef = useRef(null);
-  useEffect(() => {
-    const drawn = new L.FeatureGroup();
-    map.addLayer(drawn);
-    controlRef.current = new L.Control.Draw({
-      edit: { featureGroup: drawn },
-      draw: { marker: false, polyline: false, polygon: true, rectangle: true, circle: true, circlemarker: false }
-    });
-    map.addControl(controlRef.current);
-
-    const onCreated = async (e) => {
-      const layer = e.layer; drawn.addLayer(layer);
-      let gj;
-      if (layer instanceof L.Circle) {
-        const c = layer.getLatLng(); const r = layer.getRadius();
-        gj = turf.circle([c.lng, c.lat], r, { units: "meters", steps: 64 });
-      } else {
-        gj = layer.toGeoJSON();
-      }
-      const geometry = gj.type === "Feature" ? gj.geometry : gj;
-
-      // ⬅️ ENDPOINT DE IRRADIANCIA
-      const res = await fetch(`${API_BASE}/irradiance/zonal`, {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ geometry })
-      });
-      const stats = await res.json();
-      if (onStats) onStats(stats);
-      const ll = layer.getBounds ? layer.getBounds().getCenter() : map.getCenter();
-
-    };
-
-    map.on(L.Draw.Event.CREATED, onCreated);
-    return () => {
-      map.off(L.Draw.Event.CREATED, onCreated);
-      if (controlRef.current) map.removeControl(controlRef.current);
-      map.removeLayer(drawn);
-    };
-  }, [map, onStats]);
-  return null;
-}
-
-
-
-function ShadowsLayer({ bbox, minZoom = 16, maxZoom = 19 }) {
-  const map = useMap();
-  const currentRef = useRef(null);
-  const nextRef = useRef(null);
-  const abortRef = useRef(null);
-  const prevFetchBBoxRef = useRef(null);
-  const paneName = "shadows-pane";
-  const rendererRef = useRef(null);
-
-  const CHUNK_SIZE = 3500;
-  const CHUNK_DELAY = 8;
-  const PANE_FADE_MS = 220;
-
-  useEffect(() => {
-    if (!map) return;
-    if (!map.getPane(paneName)) {
-      map.createPane(paneName);
-      const p = map.getPane(paneName);
-      p.style.zIndex = 420;
-      p.style.transition = `opacity ${PANE_FADE_MS}ms ease`;
-      p.style.mixBlendMode = "multiply";
-      p.style.opacity = "1";
-      p.style.pointerEvents = "none";
-    }
-    if (!rendererRef.current) {
-      rendererRef.current = L.canvas({ padding: 0.5 });
-    }
-  }, [map]);
-
-  const inRange = () => {
-    const z = map?.getZoom?.() ?? 0;
-    return z >= minZoom && z <= maxZoom;
-  };
-  const pointRadiusForZoom = (z) => Math.max(1.6, Math.min(0.8 + (z - 15) * 1.1, 5));
-
-
-  const padBBox = ([w,s,e,n], r = 0.05) => { 
-   const dx = (e-w)*r, dy=(n-s)*r;
-   return [w-dx, s-dy, e+dx, n+dy];
-  };
-  
-  const shouldRefetch = (newB, oldB) => {
-    if (!oldB) return true;
-    const [w1, s1, e1, n1] = newB; const [w0, s0, e0, n0] = oldB;
-    const width = Math.max(1e-9, e0 - w0), height = Math.max(1e-9, n0 - s0);
-    return (
-      Math.abs(w1 - w0) > width * 0.18 ||
-      Math.abs(e1 - e0) > width * 0.18 ||
-      Math.abs(s1 - s0) > height * 0.18 ||
-      Math.abs(n1 - n0) > height * 0.18
-    );
-  };
-
-  const progressivelyAdd = async (fc, lyr, signal) => {
-    const feats = fc.features || [];
-    let i = 0;
-    const step = () => {
-      if (signal.aborted) return;
-      const next = feats.slice(i, i + CHUNK_SIZE);
-      if (next.length) {
-        lyr.addData({ type: "FeatureCollection", features: next });
-        i += next.length;
-        setTimeout(step, CHUNK_DELAY);
-      }
-    };
-    step();
-  };
-
-  useEffect(() => {
-    if (!map || !bbox || !inRange()) {
-      if (currentRef.current) { map.removeLayer(currentRef.current); currentRef.current = null; }
-      return;
-    }
-
-    const padded = padBBox(bbox, 0.1);
-    if (!shouldRefetch(padded, prevFetchBBoxRef.current)) {
-      const r = pointRadiusForZoom(map.getZoom());
-      if (currentRef.current) currentRef.current.eachLayer((m) => { if (m.setRadius) m.setRadius(r); });
-      return;
-    }
-
-    if (abortRef.current) abortRef.current.abort();
-    const ac = new AbortController();
-    abortRef.current = ac;
-
-    const params = new URLSearchParams({ bbox: padded.join(","), limit: "100000", offset: "0" });
-    const paneEl = map.getPane(paneName);
-    const radius = pointRadiusForZoom(map.getZoom());
-
-    (async () => {
-      try {
-        const res = await fetch(`${API_BASE}/shadows/features?${params}`, { signal: ac.signal });
-        if (!res.ok) return;
-        const fc = await res.json();
-        if (ac.signal.aborted) return;
-
-        const lyr = L.geoJSON(null, {
-          pane: paneName,
-          renderer: rendererRef.current,
-          interactive: false,
-          style: (f) => {
-            const v = f.properties?.shadow_count;
-            const c = colorForShadowCount(v);
-            return { color: c, weight: 0, fillColor: c, fillOpacity: 0.9 };
-          },
-          pointToLayer: (f, latlng) => {
-            const v = f.properties?.shadow_count;
-            const c = colorForShadowCount(v);
-            return L.circleMarker(latlng, {
-              radius,
-              stroke: false,
-              fillColor: c,
-              fillOpacity: 0.9,
-              renderer: rendererRef.current,
-              pane: paneName,
-              interactive: false,
-            });
-          },
-        });
-
-        lyr.addTo(map);
-        nextRef.current = lyr;
-
-        if (paneEl) paneEl.style.opacity = "0";
-        await progressivelyAdd(fc, lyr, ac.signal);
-        if (ac.signal.aborted) return;
-
-        if (currentRef.current) map.removeLayer(currentRef.current);
-        currentRef.current = nextRef.current;
-        nextRef.current = null;
-
-        if (paneEl) paneEl.style.opacity = "1";
-
-        prevFetchBBoxRef.current = padded;
-      } catch (e) {
-        if (e.name !== "AbortError") console.error("Shadows fetch error:", e);
-      }
-    })();
-
-    return () => {
-      if (nextRef.current) { map.removeLayer(nextRef.current); nextRef.current = null; }
-    };
-  }, [map, bbox, minZoom, maxZoom]);
-
-  useEffect(() => {
-    if (!map) return;
-    const onZoomEnd = () => {
-      if (!inRange()) {
-        if (currentRef.current) { map.removeLayer(currentRef.current); currentRef.current = null; }
-        return;
-      }
-      const r = pointRadiusForZoom(map.getZoom());
-      if (currentRef.current) currentRef.current.eachLayer((m) => { if (m.setRadius) m.setRadius(r); });
-    };
-    map.on("zoomend", onZoomEnd);
-    return () => map.off("zoomend", onZoomEnd);
-  }, [map, minZoom, maxZoom]);
-
-  useEffect(() => {
-    return () => {
-      if (abortRef.current) abortRef.current.abort();
-      if (nextRef.current && map) map.removeLayer(nextRef.current);
-      if (currentRef.current && map) map.removeLayer(currentRef.current);
-      nextRef.current = null;
-      currentRef.current = null;
-    };
-  }, [map]);
-
-  useEffect(() => {
-    if (!map) return;
-    if (!map.getPane(paneName)) {
-      map.createPane(paneName);
-      const p = map.getPane(paneName);
-      p.style.zIndex = 420;
-      p.style.transition = `opacity ${PANE_FADE_MS}ms ease`;
-      p.style.mixBlendMode = "multiply";
-      p.style.opacity = "1";
-      p.style.pointerEvents = "none";
-    }
-    if (!rendererRef.current) {
-      rendererRef.current = L.canvas({ padding: 0.5 });
-    }
-  }, [map]);
-
-  return null;
-}
-
-function ZonalDrawControl({ onStats }) {
-  const map = useMap();
-  const controlRef = useRef(null);
-  useEffect(() => {
-    const drawn = new L.FeatureGroup();
-    map.addLayer(drawn);
-    controlRef.current = new L.Control.Draw({
-      edit: { featureGroup: drawn },
-      draw: {
-        marker: false, polyline: false, polygon: true,
-        rectangle: true, circle: true, circlemarker: false
-      }
-    });
-    map.addControl(controlRef.current);
-    const onCreated = async (e) => {
-      const layer = e.layer; drawn.addLayer(layer);
-      let gj;
-      if (layer instanceof L.Circle) {
-        const c = layer.getLatLng(); const r = layer.getRadius();
-        gj = turf.circle([c.lng, c.lat], r, { units: "meters", steps: 64 });
-      } else {
-        gj = layer.toGeoJSON();
-      }
-      const geometry = gj.type === "Feature" ? gj.geometry : gj;
-      const res = await fetch(`${API_BASE}/shadows/zonal`, {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ geometry })
-      });
-      const stats = await res.json();
-      if (onStats) onStats(stats);
-      const ll = layer.getBounds ? layer.getBounds().getCenter() : map.getCenter();
-
-    };
-    map.on(L.Draw.Event.CREATED, onCreated);
-    return () => {
-      map.off(L.Draw.Event.CREATED, onCreated);
-      if (controlRef.current) map.removeControl(controlRef.current);
-      map.removeLayer(drawn);
-    };
-  }, [map, onStats]);
-  return null;
-}
-
-function padBBox([minx, miny, maxx, maxy], padRatio = 0.2) {
-  const dx = maxx - minx;
-  const dy = maxy - miny;
-  const px = dx * padRatio;
-  const py = dy * padRatio;
-  return [minx - px, miny - py, maxx + px, maxy + py];
-}
-function limitForZoom(z) {
-  if (z <= 12) return 8000;
-  if (z <= 14) return 20000;
-  if (z <= 16) return 50000;
-  return 100000;
-}
 
 function BindMapRef({ mapRef }) {
   const map = useMap();
@@ -1105,83 +586,8 @@ function CustomZoom({ min=1, max=19, shadowMin=17, shadowMax=19 }) {
   );
 }
 
-function ControlsColumn({ shadowsVisible, onToggleShadows, shadowMin=17, shadowMax=18 }) {
-  const map = useMap();
-  const [z, setZ] = useState(() => map?.getZoom?.() ?? 0);
 
-  useEffect(() => {
-    const onZoom = () => setZ(map.getZoom());
-    map.on("zoomend", onZoom);
-    setZ(map.getZoom());
-    return () => map.off("zoomend", onZoom);
-  }, [map]);
 
-  const inRange = z >= shadowMin && z <= shadowMax;
-  const needText =
-    z < shadowMin
-      ? `Acércate ${shadowMin - z} nivel${shadowMin - z === 1 ? "" : "es"} para ver sombras`
-      : z > shadowMax
-      ? `Aléjate ${z - shadowMax} nivel${z - shadowMax === 1 ? "" : "es"} para ver sombras`
-      : "Sombras activas (niveles 17–18).";
-  const targetZoom = z < shadowMin ? shadowMin : z > shadowMax ? shadowMax : z;
-
-  return (
-    <div style={{
-      position:"absolute", top:12, right:12, zIndex:1000,
-      display:"flex", flexDirection:"column", alignItems:"flex-end", gap:10
-    }}>
-      <button
-        onClick={onToggleShadows}
-        style={{
-          border:"none",
-          background: shadowsVisible ? "#3b82f6" : "#6b7280",
-          color:"#fff",
-          borderRadius:10,
-          padding:"8px 12px",
-          cursor:"pointer",
-          fontWeight:700,
-          display:"flex", alignItems:"center", gap:8,
-          boxShadow:"0 2px 8px rgba(0,0,0,0.15)"
-        }}
-      >
-        <span role="img" aria-label="sol">☀️</span>
-        {shadowsVisible ? "Ocultar sombras" : "Mostrar sombras"}
-      </button>
-
-      <CustomZoom min={14} max={19} shadowMin={shadowMin} shadowMax={shadowMax} />
-
-      <div style={{
-        background:"white",
-        borderRadius:10,
-        boxShadow:"0 2px 8px rgba(0,0,0,0.15)",
-        padding:"10px 12px",
-        font:"12px system-ui",
-        minWidth: 240
-      }}>
-        <div style={{ fontWeight:700, marginBottom:6 }}>Sombras</div>
-        <div style={{ marginBottom: inRange ? 0 : 8 }}>
-          {needText}
-        </div>
-        {!inRange && (
-          <button
-            onClick={() => map.flyTo(map.getCenter(), targetZoom, { duration: 0.6 })}
-            style={{
-              border:"none",
-              background:"#3b82f6",
-              color:"#fff",
-              borderRadius:8,
-              padding:"6px 10px",
-              cursor:"pointer",
-              fontWeight:600
-            }}
-          >
-            Ir a zoom {targetZoom}
-          </button>
-        )}
-      </div>
-    </div>
-  );
-}
 
 function useFillToBottom(ref, extraBottom = 0) {
   const [h, setH] = useState(400);
@@ -1329,36 +735,12 @@ function CelsBufferLayer({ radiusMeters = 1000 }) {
 }
 
 
-function OverlayVisibilityBinder({ targetRef, onChange }) {
-  const map = useMap();
-  useEffect(() => {
-    const update = () => {
-      if (targetRef.current && map) onChange(!!map.hasLayer(targetRef.current));
-    };
-    const onAdd = (e) => { if (e.layer === targetRef.current) onChange(true); };
-    const onRemove = (e) => { if (e.layer === targetRef.current) onChange(false); };
-    map.on("overlayadd", onAdd);
-    map.on("overlayremove", onRemove);
-    update();
-    return () => {
-      map.off("overlayadd", onAdd);
-      map.off("overlayremove", onRemove);
-    };
-  }, [map, targetRef, onChange]);
-  return null;
-}
-
 
 
 export default function NewMap() {
 
   const [certificateVisible, setCertificateVisible] = useState(false);
-
-
   const [certMode, setCertMode] = useState(null);
-
-
-
 
   async function fetchBuildingFeatureByRef(ref) {
     const res = await fetch(`${API_BASE}/buildings/by_ref?ref=${encodeURIComponent(ref)}`);
@@ -1366,14 +748,10 @@ export default function NewMap() {
     return await res.json(); // ya es Feature
   }
 
-
-
   function ensurePolygonGeom(geom) {
     if (!geom) return null;
-
     // Si llega Feature, saca geometry
     const g = geom.type === "Feature" ? geom.geometry : geom;
-
     // Si es Point, lo convertimos a un círculo (para no fallar)
     if (g?.type === "Point" && Array.isArray(g.coordinates)) {
       const [x, y] = g.coordinates;
@@ -1382,21 +760,14 @@ export default function NewMap() {
 
     return g;
   }
-
     async function handleSearchBoxFeature(arg1, arg2, arg3) {
-      // Soporta:
-      // 1) handleSearchBoxFeature({ feature, popupHtml, refcat })
-      // 2) handleSearchBoxFeature(feature, popupHtml, refcat)
-      // 3) handleSearchBoxFeature(feature)
       let feature, popupHtml, refcat;
-
       if (arg1 && (arg1.type === "Feature" || arg1.geometry)) {
         // Formato (feature, popupHtml, refcat)
         feature = arg1;
         popupHtml = arg2 ?? null;
         refcat = arg3 ?? null;
       } else {
-        // Formato ({ feature, popupHtml, refcat })
         feature = arg1?.feature ?? null;
         popupHtml = arg1?.popupHtml ?? null;
         refcat = arg1?.refcat ?? null;
@@ -1404,9 +775,7 @@ export default function NewMap() {
 
       if (!feature) return;
 
-      // --- tu lógica actual ---
       highlightSelectedFeature(mapRef.current, feature, null);
-
       const ref =
         refcat ||
         feature?.properties?.reference ||
@@ -1426,7 +795,7 @@ export default function NewMap() {
         }
       }
 
-      // OJO: aquí usa realRef si existe (ver arreglo 2)
+      
       setBMetrics(null);
       setBMetricsError("");
       setBMetricsLoading(!!ref);
@@ -1535,7 +904,6 @@ export default function NewMap() {
   
 
   const [buildingsLoaded, setBuildingsLoaded] = useState(false);
-  const [celsLoaded, setCelsLoaded] = useState(false);
 
   const selectionRef = useRef(null);
   const mapRef = useRef(null);
@@ -1592,9 +960,6 @@ export default function NewMap() {
     return res.json();
   }
 
-  const shadowsGroupRef = useRef(null);
-  const celsGroupRef = useRef(null);
-
   // fetch EMSV on mount
   useEffect(() => {
     let cancelled = false;
@@ -1631,21 +996,6 @@ export default function NewMap() {
     );
   }, [jsonRef]);
 
-  const availableNumbers = useMemo(() => {
-    if (!jsonRef || !street) return [];
-    const numbers = new Set();
-    if (typeof jsonRef === 'object' && !Array.isArray(jsonRef)) {
-      const calleData = jsonRef[street];
-      if (calleData && typeof calleData === 'object') {
-        Object.keys(calleData).forEach(num => numbers.add(num));
-      }
-    }
-    return Array.from(numbers).sort((a, b) => {
-      const numA = parseInt(a, 10);
-      const numB = parseInt(b, 10);
-      return numA - numB;
-    });
-  }, [jsonRef, street]);
 
   function clearSelection(map) {
     if (map && selectionRef.current) {
@@ -1985,10 +1335,6 @@ export default function NewMap() {
                 onSearchReset={handleSearchBoxReset}                
               />
 
-
-              {/*
-              <AdditionalPanel stats={bStats} loading={bStatsLoading} error={bStatsError} />
-              */}
             </Stack>
           </Grid>
         </Grid>
