@@ -3,7 +3,11 @@ Repositorio que contiene el código del visor público de la EMSV. El proyecto h
 
 ### Índice
 - [Organización de los Directorios del Proyecto](#organización-de-los-directorios-del-proyecto)
-- [Ejecutar la Página Web](#ejecutar-la-página-web)
+- [Tecnologías Utilizadas](#Tecnologías-Utilizadas)
+- [Ejecución en Local](#Ejecución-en-Local)
+- [Despliegue en Producción](#Despliegue-en-Producción)
+- [Actualización del Frontend Público](#Actualización-del-Frontend-Público)
+- [Acceso a la API](#Acceso-a-la-API)
 
 ### Organización de los Directorios del Proyecto
 Explicacion de los diferentes dirrectorios del proyecto:
@@ -14,47 +18,74 @@ visor_publico_emsv_actualizacion/
 - **[nginx_conf_publico](/nginx_conf_publico/)**, configuraciones históricas (no activas)
 - **[server](/server/)**, carpeta heredada (no utilizada)
 
- ├─ visor_publico_emsv_client_actualizado/   → build del frontend React
- ├─ Dockerfile.frontend                      → imagen del frontend Nginx
- ├─ nginx_conf_publico/                      → configuraciones históricas (no activas)
- └─ server/                                  → carpeta heredada (no utilizada)
-
-El visor público comparte el mismo backend
-a través del servicio Docker:
-
+El visor público comparte el mismo backend a través del servicio Docker:
 - backend-privado (lectura / escritura privada)
 - gateway (lectura pública controlada)
-
 No existe un backend independiente del visor público.
 
-- **[client](/client/)**, código desarrollado en el FrameWork React para la página web.
-- **[server](/server/)**, código desarrollado en node.js para la API de la página web.
-- **[visor_publico_emsv_nginx_node_server](/visor_publico_emsv_nginx_node_server/)**, diferentes archivos de configuración para el despligue de la página web en kutone. 
+### Tecnologías Utilizadas
+Frontend:
+- React + MUI
+- React-Leaflet
+- Nivo Charts
 
-### Ejecutar la Página Web
-En primer luegar, habra que ejecutar el sigiente comando **`npm install`**, tanto en la carpeta *server* como *client*, para poder instalar los diferentes paquetes de los que depende la página web.
+Backend compartido:
+- FastAPI + DuckDB
+- Consultas espaciales
+- API de solo lectura para el público
 
-A continuación, dependiendo se vamos ejecutar en local el proyecto, para desarrollar algun nuevo comoponente, o si vamos a hacer el deploy de la página en producción deberemos llevar a cabo distintos pasos:
-    - [Ejecución de forma Local](#ejecución-de-forma-local)
-    - [Deploy en Producción](#deploy-en-producción)
+Infraestructura:
+- Docker + Docker Compose
+- Nginx como reverse proxy HTTPS
 
-Destacar que aunque le server se ejecute de forma local o el producción este siempre escuchara en el puerto 3040.
+### Ejecución en Local
 
-#### Ejecución de forma Local
+Frontend
+- Desarrollo:
+  npm install
+  npm run dev
+- Generación del build:
+  npm run build
 
-En el directorio *server* deberemos ejecutar el siguiente comando: **`npm run dev`**.
-En el directorio *client* deberemos ejecutar el siguiente comando: **`npm run dev`**.
+La API no se ejecuta desde esta carpeta:
+se sirve desde el backend compartido en Docker.
 
-#### Deploy en Producción
+### Despliegue en Producción
 
-En el directorio *server* deberemos ejecutar el siguiente comando: **`node server.js`**.
-En el directorio *client* deberemos ejecutar el siguiente comando: **`npm run build`**, este nos creara una carpeta **dist** que contendra la páigna web creada, esto solo habrá que moverlo a dirrectorio donde el servidor web guarde las páginas webs para servirlas a los clientes.
+1) Compilar frontend:
+   npm run build
+
+2) Copiar archivos al servidor:
+   visor_publico/visor_publico_emsv_client_actualizado
+
+3) Construir contenedor público:
+   docker compose build frontend-publico
+   docker compose up -d frontend-publico
+
+### Actualización del Frontend Público
+
+Cada actualización requiere:
+1) Generar nuevo build React
+2) Subir index.html + assets
+3) Reconstruir imagen del contenedor:
+   docker compose build frontend-publico
+   docker compose up -d frontend-publico
+
+### Acceso a la API
+
+El visor público accede a la API pasando por el gateway:
+
+   /api_2/...
+
+- Las peticiones GET son de solo lectura
+- Las operaciones de escritura están bloqueadas
+- El backend real reside en backend-privado
+
 
 ### Créditos 
 Cordinador del proyecto por Asier Aguilaz [linkedin](https://www.linkedin.com/in/asier-eguilaz/)
 
-Urban Planner Samanta Arnal Martín [linkedin](https://www.linkedin.com/in/samanta-arnal/)
+Creado por Juan Jiménez Fernández [linkedin](https://www.linkedin.com/in/juan-jimenez-fernandez-b16b99119/)
 
 Creado por Miguel Salas Heras [linkedin](https://www.linkedin.com/in/miguelsalasheras/)
 
-Basado en el Observatirio de EPIU [github](https://github.com/KhoraUrbanThinkers/Visor_EPIUGetafe)
