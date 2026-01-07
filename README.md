@@ -10,7 +10,10 @@ Explicacion de los diferentes dirrectorios del proyecto:
 
 visor_publico_emsv_actualizacion/
 - **[visor_publico_emsv_client_actualizado](/clienvisor_publico_emsv_client_actualizadot/)**, build del frontend React.
-- **[Dockerfile.frontend ](/Dockerfile.frontend/)**, magen del frontend Nginx.
+- **[Dockerfile.frontend](/Dockerfile.frontend/)**, imagen del frontend Nginx.
+- **[nginx_conf_publico](/nginx_conf_publico/)**, configuraciones históricas (no activas)
+- **[server](/server/)**, carpeta heredada (no utilizada)
+
  ├─ visor_publico_emsv_client_actualizado/   → build del frontend React
  ├─ Dockerfile.frontend                      → imagen del frontend Nginx
  ├─ nginx_conf_publico/                      → configuraciones históricas (no activas)
