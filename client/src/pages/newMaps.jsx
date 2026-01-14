@@ -7,6 +7,9 @@ import {
   Box,
   Typography,
   useTheme,
+  Switch,
+  FormControlLabel,
+  Paper,
 } from "@mui/material";
 
 import "leaflet-draw/dist/leaflet.draw.css";
@@ -738,6 +741,8 @@ function CelsBufferLayer({ radiusMeters = 1000 }) {
 
 
 export default function NewMap() {
+  const [satelliteOn, setSatelliteOn] = useState(false);
+  const prevLayersRef = useRef(null);
 
   const [certificateVisible, setCertificateVisible] = useState(false);
   const [certMode, setCertMode] = useState(null);
@@ -949,7 +954,36 @@ export default function NewMap() {
       setCelsVisible(true);
     }
   }, [certMode]);
-
+  
+  // Satélite: apaga capas energéticas/irradiancia, deja CELS como esté
+  useEffect(() => {
+    if (satelliteOn) {
+      // guarda estado previo para restaurar al salir de satélite
+      prevLayersRef.current = {
+        irradianceVisible,
+        certificateVisible,
+        certMode,
+        shadowsVisible,
+      } 
+      // apaga todo lo "energético/irradiancia" para ver solo satélite
+      setIrradianceVisible(false);
+      setCertificateVisible(false);
+      setCertMode(null);
+      setShadowsVisible(false);
+      // OJO: NO tocamos celsVisible (se queda como esté)
+    } else {
+      // restaura el estado previo si existía
+      const prev = prevLayersRef.current;
+      if (prev) {
+        setIrradianceVisible(prev.irradianceVisible);
+        setCertificateVisible(prev.certificateVisible);
+        setCertMode(prev.certMode);
+        setShadowsVisible(prev.shadowsVisible);
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [satelliteOn]);
+  
   async function fetchZonalStats(geometry) {
     const res = await fetch(`${API_BASE}/shadows/zonal`, {
       method: "POST",
@@ -1204,6 +1238,31 @@ export default function NewMap() {
                 position: "relative",
               }}
             >
+              {/* Toggle Satélite (arriba-derecha) */}
+              <Paper
+                elevation={3}
+                sx={{
+                  position: "absolute",
+                  top: 10,
+                  right: 10,
+                  zIndex: 1000,
+                  p: 1,
+                  borderRadius: 2,
+                  pointerEvents: "auto",
+                }}
+              >
+                <FormControlLabel
+                  sx={{ m: 0 }}
+                  control={
+                    <Switch
+                      checked={satelliteOn}
+                      onChange={(e) => setSatelliteOn(e.target.checked)}
+                      size="small"
+                    />
+                  }
+                  label={<Typography sx={{ fontSize: 12, fontWeight: 600 }}>Satélite</Typography>}
+                />
+              </Paper>
               <MapContainer
                 center={[40.307927, -3.732297]}
                 minZoom={14}
@@ -1225,14 +1284,25 @@ export default function NewMap() {
                 <BindMapRef mapRef={mapRef} />
                 <SetupLimitPanes />
                 <BboxWatcher onBboxChange={setBbox} />
-                <TileLayer
-                  url="https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png"
-                  attribution='&copy; <a href="https://carto.com/">CARTO</a>'
-                  subdomains={["a", "b", "c", "d"]}
-                  maxZoom={19}
-                  opacity={0.8}
-                  zIndex={0}
-                />
+
+                {!satelliteOn ? (
+                  <TileLayer
+                    url="https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png"
+                    attribution='&copy; <a href="https://carto.com/">CARTO</a>'
+                    subdomains={["a", "b", "c", "d"]}
+                    maxZoom={19}
+                    opacity={0.8}
+                    zIndex={0}
+                  />
+                ) : (
+                  <TileLayer
+                    url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
+                    attribution="Tiles &copy; Esri"
+                    maxZoom={19}
+                    opacity={1}
+                    zIndex={0}
+                  />
+                )}
 
                 <CertificateLegend visible={certificateVisible && !!certMode} mode={certMode} />
 
